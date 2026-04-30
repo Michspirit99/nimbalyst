@@ -282,8 +282,29 @@ interface TranscriptPeekProps {
 }
 
 function TranscriptPeek({ sessionId, anchorRef, onClose }: TranscriptPeekProps) {
-  const [messages, setMessages] = useState<TranscriptViewMessage[] | null>(tailMessageCache.get(sessionId) || null);
-  const [loading, setLoading] = useState(!tailMessageCache.has(sessionId));
+  // Workstream/worktree cards have no transcript of their own. Show the most
+  // recently updated child session's transcript so the peek isn't blank.
+  const registry = useAtomValue(sessionRegistryAtom);
+  const resolvedSessionId = useMemo(() => {
+    const meta = registry.get(sessionId);
+    if (!meta) return sessionId;
+    if (getCardType(meta) === 'session') return sessionId;
+
+    let bestId = sessionId;
+    let bestUpdatedAt = -Infinity;
+    for (const child of registry.values()) {
+      if (child.parentSessionId !== sessionId) continue;
+      const ts = child.updatedAt ?? 0;
+      if (ts > bestUpdatedAt) {
+        bestUpdatedAt = ts;
+        bestId = child.id;
+      }
+    }
+    return bestId;
+  }, [registry, sessionId]);
+
+  const [messages, setMessages] = useState<TranscriptViewMessage[] | null>(tailMessageCache.get(resolvedSessionId) || null);
+  const [loading, setLoading] = useState(!tailMessageCache.has(resolvedSessionId));
   const peekRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
 
@@ -295,12 +316,20 @@ function TranscriptPeek({ sessionId, anchorRef, onClose }: TranscriptPeekProps) 
   // coalescing -- a small tail would only show the last few tokens of those
   // sessions.
   useEffect(() => {
+    const cached = tailMessageCache.get(resolvedSessionId);
+    if (cached) {
+      setMessages(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     let cancelled = false;
     window.electronAPI.ai
-      .getTailMessages(sessionId, 100)
+      .getTailMessages(resolvedSessionId, 100)
       .then((msgs: TranscriptViewMessage[]) => {
         if (!cancelled) {
-          tailMessageCache.set(sessionId, msgs);
+          tailMessageCache.set(resolvedSessionId, msgs);
           setMessages(msgs);
           setLoading(false);
         }
@@ -313,7 +342,7 @@ function TranscriptPeek({ sessionId, anchorRef, onClose }: TranscriptPeekProps) 
       });
 
     return () => { cancelled = true; };
-  }, [sessionId]);
+  }, [resolvedSessionId]);
 
   // Position relative to anchor element
   useEffect(() => {
@@ -356,7 +385,7 @@ function TranscriptPeek({ sessionId, anchorRef, onClose }: TranscriptPeekProps) 
       ) : messages && messages.length > 0 ? (
         <div className="flex-1 overflow-hidden">
           <RichTranscriptView
-            sessionId={sessionId}
+            sessionId={resolvedSessionId}
             messages={messages}
             settings={PEEK_SETTINGS}
           />
