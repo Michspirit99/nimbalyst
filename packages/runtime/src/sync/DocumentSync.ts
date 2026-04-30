@@ -846,14 +846,14 @@ export class DocumentSyncProvider {
       } else {
         this.setStatus('connected');
       }
-      console.log(
-        '[DocumentSync] Replaying pending update for room:',
-        this.getRoomId(),
-        'clientUpdateId:',
-        clientUpdateId,
-        'bytes:',
-        pendingUpdate.length
-      );
+      // console.log(
+      //   '[DocumentSync] Replaying pending update for room:',
+      //   this.getRoomId(),
+      //   'clientUpdateId:',
+      //   clientUpdateId,
+      //   'bytes:',
+      //   pendingUpdate.length
+      // );
       this.send({
         type: 'docUpdate',
         encryptedUpdate: encrypted,
@@ -884,14 +884,14 @@ export class DocumentSyncProvider {
       return;
     }
 
-    console.log(
-      '[DocumentSync] Received docUpdateAck for room:',
-      this.getRoomId(),
-      'clientUpdateId:',
-      msg.clientUpdateId,
-      'sequence:',
-      msg.sequence
-    );
+    // console.log(
+    //   '[DocumentSync] Received docUpdateAck for room:',
+    //   this.getRoomId(),
+    //   'clientUpdateId:',
+    //   msg.clientUpdateId,
+    //   'sequence:',
+    //   msg.sequence
+    // );
     this.clearReplayAckTimer();
     this.finishReplayingPendingUpdate();
   }
