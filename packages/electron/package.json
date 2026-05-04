@@ -1,6 +1,6 @@
 {
   "name": "@nimbalyst/electron",
-  "version": "0.58.19",
+  "version": "0.58.20",
   "private": true,
   "license": "MIT",
   "description": "Electron app for Nimbalyst",

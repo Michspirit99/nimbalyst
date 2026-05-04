@@ -20,6 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 <!-- Removed features go here -->
 
+## [0.58.20] - 2026-05-04
+
+
+### Added
+<!-- New features go here -->
+
+### Changed
+- Bump claude-agent-sdk 0.2.117 -> 0.2.126. Picks up automatic MCP server reconnection after transport-stream abort and SessionStore.append() retry logic from 0.2.119, plus the `origin` field on result messages from 0.2.126. Override pin and both workspace dependency ranges bumped in lockstep.
+
+### Fixed
+- Render local images after the webSecurity hardening from 0.58.19. Restoring `webSecurity: true` broke every renderer surface that loaded local images via `<img src="file://...">` — markdown image paste, agent transcript attachments, mockup screenshots, and the `display_visual` widget kept emitting file:// URLs and silently failed to load. Adds a runtime-side `localAssetUrl` helper that the Electron renderer registers with `nimAssetUrl` at startup so all runtime image surfaces route absolute filesystem paths through the same-origin `nim-asset://` URL the main window can actually load. Non-Electron consumers fall back to file://. Adds an E2E regression test that pastes an SVG into a doc and asserts the rendered `<img>` resolves to a `nim-asset://` URL with naturalWidth > 0. Fixes #146.
+
+### Removed
+<!-- Removed features go here -->
+
 ## [0.58.19] - 2026-05-04
 
 
