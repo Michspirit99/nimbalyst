@@ -12,6 +12,7 @@ import { AlphaBadge } from '../../common/AlphaBadge';
 import { useDialog } from '../../../contexts/DialogContext';
 import {
   buildTrackerUpgradeConfirmOptions,
+  canUpgradeTrackerMode,
   getTrackerStorageCopy,
   requiresTrackerUpgradeConfirmation,
 } from './trackerConfigUpgrade';
@@ -474,7 +475,7 @@ function MemberView({ trackers, workspacePath }: { trackers: TrackerTypeConfig[]
 
 export function TrackerConfigPanel({ workspacePath }: TrackerConfigPanelProps) {
   const [trackers, setTrackers] = useState<TrackerTypeConfig[]>([]);
-  const [isAdmin, setIsAdmin] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [issueKeyPrefix, setIssueKeyPrefix] = useState('NIM');
   const [isSyncConnected, setIsSyncConnected] = useState(false);
   const { confirm } = useDialog();
@@ -497,11 +498,16 @@ export function TrackerConfigPanel({ workspacePath }: TrackerConfigPanelProps) {
         // Check team role (per-workspace lookup)
         try {
           const teamResult = await (window as any).electronAPI.team.findForWorkspace(workspacePath);
-          if (teamResult.success && teamResult.team) {
-            setIsAdmin(teamResult.team.role === 'admin');
+          if (teamResult.success) {
+            if (teamResult.team) {
+              setIsAdmin(teamResult.team.role === 'admin');
+            } else {
+              // No team matched this workspace, so keep local tracker policy management available.
+              setIsAdmin(true);
+            }
           }
         } catch {
-          // No team or error
+          // Leave admin gating closed on lookup error.
         }
 
         // Check if tracker sync is connected (for determining where to save prefix)
@@ -573,7 +579,7 @@ export function TrackerConfigPanel({ workspacePath }: TrackerConfigPanelProps) {
       return;
     }
 
-    if (!isAdmin) {
+    if (!canUpgradeTrackerMode(tracker.syncMode, mode, isAdmin)) {
       return;
     }
 

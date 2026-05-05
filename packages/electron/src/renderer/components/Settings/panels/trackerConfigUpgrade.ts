@@ -15,6 +15,14 @@ export function requiresTrackerUpgradeConfirmation(
   return currentMode === 'local' && isSharedTrackerMode(nextMode);
 }
 
+export function canUpgradeTrackerMode(
+  currentMode: TrackerSyncMode,
+  nextMode: TrackerSyncMode,
+  isAdmin: boolean,
+): boolean {
+  return !requiresTrackerUpgradeConfirmation(currentMode, nextMode) || isAdmin;
+}
+
 export function getTrackerStorageCopy(): string {
   return `Local tracker config is stored in ${LOCAL_TRACKER_CONFIG_LOCATION}. Shared tracker config is stored in ${SHARED_TRACKER_CONFIG_LOCATION}.`;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTrackerUpgradeConfirmOptions,
+  canUpgradeTrackerMode,
   getTrackerStorageCopy,
   requiresTrackerUpgradeConfirmation,
 } from '../trackerConfigUpgrade';
@@ -16,6 +17,14 @@ describe('trackerConfigUpgrade', () => {
     expect(requiresTrackerUpgradeConfirmation('shared', 'hybrid')).toBe(false);
     expect(requiresTrackerUpgradeConfirmation('hybrid', 'shared')).toBe(false);
     expect(requiresTrackerUpgradeConfirmation('shared', 'local')).toBe(false);
+  });
+
+  it('allows local-to-shared upgrades only for admins', () => {
+    expect(canUpgradeTrackerMode('local', 'shared', true)).toBe(true);
+    expect(canUpgradeTrackerMode('local', 'hybrid', true)).toBe(true);
+    expect(canUpgradeTrackerMode('local', 'shared', false)).toBe(false);
+    expect(canUpgradeTrackerMode('local', 'hybrid', false)).toBe(false);
+    expect(canUpgradeTrackerMode('shared', 'local', false)).toBe(true);
   });
 
   it('describes where local and shared tracker config are stored', () => {
