@@ -776,7 +776,7 @@ export const AIInput = forwardRef<AIInputRef, AIInputProps>(
       }
 
       // Handle Cmd+Shift+V for force-paste (bypass large paste → attachment conversion)
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'v') {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
         e.preventDefault();
         readClipboard().then(text => {
           if (!text || !textareaRef.current) return;
