@@ -302,11 +302,17 @@ type ServerMessage =
 // JWT Utilities
 // ============================================================================
 
+interface JwtClaims {
+  sub: string;
+  /** Stytch B2B organization_id claim. Personal-scoped JWTs carry the personal orgId; team-scoped JWTs carry the team orgId. */
+  organization_id?: string;
+}
+
 /**
- * Extract user ID from a JWT's 'sub' claim.
+ * Decode a JWT's payload claims. Does not verify the signature -- the server does that.
  * The JWT is a base64url encoded string in the format: header.payload.signature
  */
-function extractUserIdFromJwt(jwt: string): string {
+function decodeJwtClaims(jwt: string): JwtClaims {
   try {
     const parts = jwt.split('.');
     if (parts.length !== 3) {
@@ -324,10 +330,10 @@ function extractUserIdFromJwt(jwt: string): string {
       throw new Error('JWT missing sub claim');
     }
 
-    return parsed.sub;
+    return { sub: parsed.sub, organization_id: parsed.organization_id };
   } catch (error) {
-    console.error('[CollabV3] Failed to extract user ID from JWT:', error);
-    throw new Error('Invalid JWT: cannot extract user ID');
+    console.error('[CollabV3] Failed to decode JWT:', error);
+    throw new Error('Invalid JWT: cannot decode claims');
   }
 }
 
@@ -746,17 +752,31 @@ export function createCollabV3Sync(config: SyncConfig): SyncProvider {
   // desktop and mobile always connect to the same index room.
   async function ensureFreshJwt(): Promise<{ jwt: string; userId: string }> {
     const jwt = await config.getJwt();
-    const jwtUserId = extractUserIdFromJwt(jwt);
+    const claims = decodeJwtClaims(jwt);
+    const jwtUserId = claims.sub;
     currentJwt = jwt;
 
     // Use config.userId (personalUserId from SyncManager) as the canonical
     // room routing ID. This must match iOS which also uses the personal
-    // member ID. If the JWT sub doesn't match, the server may reject the
-    // connection -- but routing to the wrong room is worse because it
-    // silently breaks cross-device sync (prompts, drafts, etc.).
+    // member ID. If the JWT sub doesn't match, the server WILL reject the
+    // WebSocket auth (it validates JWT sub === room URL userId) -- but
+    // routing to the wrong room is worse because it silently breaks
+    // cross-device sync (prompts, drafts, etc.).
     if (config.userId && jwtUserId !== config.userId) {
-      console.warn('[CollabV3] JWT sub mismatch! JWT sub:', jwtUserId, 'config.userId:', config.userId,
-        '-- using config.userId for room routing. The JWT may be team-scoped instead of personal-org-scoped.');
+      const jwtIsTeamScoped =
+        !!claims.organization_id && !!config.orgId && claims.organization_id !== config.orgId;
+      console.warn(
+        '[CollabV3] JWT sub does not match sync config userId -- server will reject the WebSocket auth.',
+        {
+          jwtSub: jwtUserId,
+          jwtOrgId: claims.organization_id ?? null,
+          configUserId: config.userId, // personalUserId from SyncManager
+          configOrgId: config.orgId,   // personalOrgId from SyncManager
+          likelyCause: jwtIsTeamScoped
+            ? 'JWT is team-scoped (organization_id differs from personal orgId). getJwt() should return a personal-org-scoped JWT -- check StytchAuthService.refreshPersonalSession / getPersonalSessionJwt.'
+            : 'JWT and config disagree on the user ID. The persisted personalUserId is likely stale (e.g. saved as a team member ID before resolvePersonalUserId ran). Check StytchAuthService.resolvePersonalUserId and the persisted session-sync config.',
+        },
+      );
     }
     currentUserId = config.userId || jwtUserId;
     return { jwt, userId: currentUserId };
