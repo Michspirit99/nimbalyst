@@ -77,7 +77,8 @@ function simulateMcpServer(
       ipc.on(channel, onResponse);
       ipc.on(sessionFallbackChannel, onFallbackResponse);
 
-      if (opts?.dbPollFn) {
+      const dbPollFn = opts?.dbPollFn;
+      if (dbPollFn) {
         pollTimer = setInterval(async () => {
           if (settled) {
             if (pollTimer) {
@@ -88,7 +89,7 @@ function simulateMcpServer(
           }
 
           try {
-            const msg = await opts.dbPollFn();
+            const msg = await dbPollFn();
             if (!msg || msg.type !== 'request_user_input_response') return;
             const responsePromptIds = [
               typeof msg.promptId === 'string' ? msg.promptId : null,
