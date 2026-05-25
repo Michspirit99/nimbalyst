@@ -1129,8 +1129,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Worktree operations
-  worktreeCreate: (workspacePath: string, name?: string) =>
-    ipcRenderer.invoke('worktree:create', workspacePath, name),
+  worktreeCreate: (workspacePath: string, options?: { name?: string; baseBranch?: string }) =>
+    ipcRenderer.invoke('worktree:create', workspacePath, options),
   worktreeGetStatus: (worktreePath: string, options?: { fetchFirst?: boolean }) =>
     ipcRenderer.invoke('worktree:get-status', worktreePath, options),
   worktreeGetByPath: (worktreePath: string) =>
