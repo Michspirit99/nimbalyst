@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tip body now renders basic markdown (paragraphs, bullets, bold).
 - Empty AI session panels now cycle through 15 additional contextual tips: the four embedded editors (Excalidraw, MockupLM, DataModelLM, spreadsheets), shared session and document links, CLAUDE.md standing instructions, auto-commit mode, document history (Cmd+Y), quick open (Cmd+O), content search (Cmd+Shift+F), mobile pairing, scheduled wakeups, action prompts, and the lightning interrupt button.
 - Session history search supports a virtual `#worktree` tag that filters to all worktree sessions and their children.
+- Shared Documents file tree now has inline search by document name or folder path.
 
 ### Changed
 <!-- Changes to existing functionality go here -->
