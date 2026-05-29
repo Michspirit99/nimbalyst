@@ -7,14 +7,14 @@
  * the flag we catch the SQLite up to PGLite's current state.
  *
  *   1. Find the latest sqlite-db.dry-run-{stamp}/ directory + its manifest.
- *   2. Quiesce PGLite (closeRunningPglite).
- *   3. Open PGLite read-only and the dry-run SQLite.
- *   4. Run PGLiteToSQLiteMigrator.catchUp() — cursor-paginated incremental
- *      copy for append-only tables, full re-copy for small updatable tables.
- *   5. Close both.
- *   6. Rename pglite-db/ → pglite-db.migrated-{ts}/.
- *   7. Rename sqlite-db.dry-run-{stamp}/ → sqlite-db/.
- *   8. Write the backend flag pointing at SQLite.
+ *   2. Open the dry-run SQLite.
+ *   3. Run PGLiteToSQLiteMigrator.catchUp() against the live worker.
+ *   4. Quiesce PGLite (closeRunningPglite).
+ *   5. Re-open PGLite from disk and run one final catch-up pass.
+ *   6. Close both.
+ *   7. Rename pglite-db/ → pglite-db.migrated-{ts}/.
+ *   8. Rename sqlite-db.dry-run-{stamp}/ → sqlite-db/.
+ *   9. Write the backend flag pointing at SQLite.
  *
  * Failure rules mirror MigrationOrchestrator: any error before the renames
  * leaves PGLite untouched and the dry-run dir in place; the app reopens on
@@ -60,6 +60,11 @@ export interface AdopterOptions {
    */
   pglite: LivePgliteReader;
   closeRunningPglite: () => Promise<void>;
+  /**
+   * After the live PGLite worker is quiesced, reopen the on-disk database so
+   * we can run one final exact catch-up pass before the directory rename.
+   */
+  reopenPgliteAfterClose?: (dataDir: string) => Promise<PGLiteHandle>;
   onCutoverSuccess?: (info: {
     sqliteDir: string;
     pgliteMigratedDir: string;
@@ -176,20 +181,38 @@ export class MigrationAdopter {
         log,
       });
 
-      // 3. Close SQLite cleanly before the fs rename.
+      // 3. Close the live PGLite worker so no more source writes can land.
+      phase = 'closing-pglite';
+      await this.opts.closeRunningPglite();
+
+      // 4. Re-open the now-quiesced PGLite dir and reconcile the short window
+      // between the live catch-up pass above and the close we just waited for.
+      const reopen = this.opts.reopenPgliteAfterClose;
+      if (!reopen) {
+        throw new Error('MigrationAdopter requires reopenPgliteAfterClose() for final catch-up.');
+      }
+      phase = 'catching-up-after-close';
+      const closedSource = await reopen(pgliteDir);
+      const finalCatchUp = await (async () => {
+        try {
+          return await migrator.catchUp({
+            pglite: closedSource,
+            sqlite,
+            manifest: catchResult.manifest,
+            onProgress,
+            log,
+          });
+        } finally {
+          await closedSource.close();
+        }
+      })();
+
+      // 5. Close SQLite cleanly before the fs rename.
       phase = 'closing-sqlite';
       await sqlite.close();
       sqlite = null;
 
-      // 4. Close the live PGLite worker so we can rename its dir. Any writes
-      // that landed between catch-up reads and this close are lost — they
-      // won't be on the new SQLite. We accept this small race for alpha;
-      // closing earlier risks leaving the migrator without a reader if
-      // catch-up needs to query a table partway.
-      phase = 'closing-pglite';
-      await this.opts.closeRunningPglite();
-
-      // 5. Cutover: move PGLite aside, rename dry-run dir to active.
+      // 6. Cutover: move PGLite aside, rename dry-run dir to active.
       phase = 'cutover';
       try {
         fs.renameSync(pgliteDir, pgliteMigratedDir);
@@ -202,9 +225,11 @@ export class MigrationAdopter {
       commitMigrationToSqlite(userData, pgliteMigratedDir);
 
       const durationMs = performance.now() - t0;
+      const rowsAdded = catchResult.rowsAdded + finalCatchUp.rowsAdded;
+      const perTable = mergeAddedTables(catchResult.perTable, finalCatchUp.perTable);
       const result: AdoptResult = {
-        rowsAdded: catchResult.rowsAdded,
-        perTable: catchResult.perTable,
+        rowsAdded,
+        perTable,
         pgliteMigratedDir,
         sqliteDir,
         durationMs,
@@ -218,8 +243,8 @@ export class MigrationAdopter {
       // works without a new channel — only the fields it actually displays
       // need to be present.
       const summary: MigrationSummary = {
-        totalRowsCopied: catchResult.rowsAdded,
-        tablesCopied: catchResult.perTable.map((t) => ({ name: t.name, rows: t.added })),
+        totalRowsCopied: rowsAdded,
+        tablesCopied: perTable.map((t) => ({ name: t.name, rows: t.added })),
         durationMs,
         integrityCheck: 'ok',
         foreignKeyViolations: 0,
@@ -228,7 +253,7 @@ export class MigrationAdopter {
       reporter?.emitComplete(summary);
 
       this.opts.sendEvent?.('migration_adopted_dry_run', {
-        rows_added: catchResult.rowsAdded,
+        rows_added: rowsAdded,
         duration_ms: Math.round(durationMs),
         manifest_age_ms: Date.now() - new Date(manifest.completedAt).getTime(),
       });
@@ -267,4 +292,15 @@ function buildReadOnlyAdapter(reader: LivePgliteReader): PGLiteHandle {
       // No-op: the live worker keeps running until we explicitly close it.
     },
   };
+}
+
+function mergeAddedTables(
+  first: Array<{ name: string; added: number }>,
+  second: Array<{ name: string; added: number }>,
+): Array<{ name: string; added: number }> {
+  const merged = new Map(first.map((entry) => [entry.name, entry.added]));
+  for (const entry of second) {
+    merged.set(entry.name, (merged.get(entry.name) ?? 0) + entry.added);
+  }
+  return Array.from(merged.entries()).map(([name, added]) => ({ name, added }));
 }

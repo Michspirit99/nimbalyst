@@ -53,6 +53,15 @@ describe('translateSql - NOW()', () => {
     const r = translateSql('SELECT now()');
     expect(r.sql).toBe("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
   });
+
+  it('translates EXTRACT(EPOCH FROM expr) * 1000 using the captured expression', () => {
+    const r = translateSql(
+      'SELECT EXTRACT(EPOCH FROM s.last_read_timestamp) * 1000 AS last_read_ms FROM ai_sessions s',
+    );
+    expect(r.sql).toContain(
+      "CAST(round(unixepoch(s.last_read_timestamp, 'subsec') * 1000) AS INTEGER) AS last_read_ms",
+    );
+  });
 });
 
 describe('translateSql - type casts', () => {

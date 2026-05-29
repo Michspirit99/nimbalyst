@@ -5,11 +5,12 @@
  *
  *   1. Pre-flight (disk space + last-backup freshness)
  *   2. Snapshot the PGLite store (current backup ring)
- *   3. Quiesce the PGLite worker (close)
- *   4. Open PGLite read-only directly + open a fresh SQLite under sqlite-db/
- *   5. Run PGLiteToSQLiteMigrator (data copy + verification)
- *   6. Close both
- *   7. Cutover: rename pglite-db/ → pglite-db.migrated-{ts}/, write the
+ *   3. Open a fresh SQLite under sqlite-db/
+ *   4. Run PGLiteToSQLiteMigrator against the live worker for the bulk copy
+ *   5. Quiesce the live PGLite worker (close)
+ *   6. Re-open PGLite from disk and run one final catch-up pass
+ *   7. Close both
+ *   8. Cutover: rename pglite-db/ → pglite-db.migrated-{ts}/, write the
  *      backend flag pointing at SQLite. The PGLite directory is never deleted.
  *
  * Failure rules (per the plan's Failure Paths table):
@@ -93,6 +94,11 @@ export interface OrchestratorOptions {
   reporter?: MigrationProgressReporter;
   /** Override for tests; defaults to PGLiteToSQLiteMigrator. */
   migrator?: PGLiteToSQLiteMigrator;
+  /**
+   * After the live PGLite worker is quiesced, reopen the on-disk database so
+   * we can do one final catch-up pass and make the cutover snapshot exact.
+   */
+  reopenPgliteAfterClose?: (dataDir: string) => Promise<PGLiteHandle>;
   /** Logger. */
   log?: (level: 'info' | 'warn' | 'error', msg: string, meta?: unknown) => void;
   /** For tests: skip the safety check that requires `pglite-db/` to exist. */
@@ -184,13 +190,12 @@ export class MigrationOrchestrator {
       });
       await sqlite.initialize();
 
-      // 2. Run the migrator against the LIVE PGLite worker. Writes that
-      // land in PGLite during the copy will be missed by SQLite — that's
-      // acceptable for the alpha cutover path because the migration UI
-      // already asks the user to start it intentionally. The dry-run +
-      // adopt flow uses catch-up to close that gap; this orchestrator
-      // path takes the simpler one-shot stance. See `LivePgliteReader`
-      // above for why we don't open PGLite in-process here.
+      // 2. Bulk-copy against the LIVE PGLite worker. This gives us the
+      // initial manifest/high-water marks, but it is not yet the final
+      // cutover snapshot because the app can still write to PGLite while
+      // the copy is running. We close that race below by quiescing PGLite
+      // and running one last catch-up pass against a freshly reopened
+      // on-disk handle.
       phase = 'migrating';
       const migrator = this.opts.migrator ?? new PGLiteToSQLiteMigrator();
       const onProgress: ((p: MigrationProgress) => void) | undefined = reporter
@@ -204,16 +209,44 @@ export class MigrationOrchestrator {
         log,
       });
 
-      // 3. Close SQLite cleanly before the rename.
+      // 3. Quiesce the live PGLite worker so no more source writes can land.
+      phase = 'closing-pglite';
+      await this.opts.closeRunningPglite();
+
+      // 4. Re-open the now-quiesced PGLite dir and catch SQLite up to the
+      // exact final source state before we flip the backend flag.
+      const reopen = this.opts.reopenPgliteAfterClose;
+      if (!reopen) {
+        throw new Error('MigrationOrchestrator requires reopenPgliteAfterClose() for final catch-up.');
+      }
+      const manifest = summary.manifest;
+      if (!manifest) {
+        throw new Error('MigrationOrchestrator missing migration manifest for final catch-up.');
+      }
+      phase = 'catching-up-after-close';
+      const closedSource = await reopen(pgliteDir);
+      const finalCatchUp = await (async () => {
+        try {
+          return await migrator.catchUp({
+            pglite: closedSource,
+            sqlite,
+            manifest,
+            onProgress,
+            log,
+          });
+        } finally {
+          await closedSource.close();
+        }
+      })();
+      summary.totalRowsCopied += finalCatchUp.rowsAdded;
+      summary.tablesCopied = mergeCopiedTables(summary.tablesCopied, finalCatchUp.perTable);
+
+      // 5. Close SQLite cleanly before the rename.
       phase = 'closing-sqlite';
       await sqlite.close();
       sqlite = null;
 
-      // 4. Close the live PGLite worker so we can rename its dir.
-      phase = 'closing-pglite';
-      await this.opts.closeRunningPglite();
-
-      // 5. Cutover. Rename PGLite directory aside, write the backend flag.
+      // 6. Cutover. Rename PGLite directory aside, write the backend flag.
       // Per the plan: if the rename fails (e.g. Windows file-in-use), we still
       // proceed — the flag points at SQLite, and a leftover pglite-db/ is
       // harmless. We log and surface it but don't fail the migration.
@@ -351,4 +384,15 @@ function humanBytes(n: number): string {
     v /= 1024;
   }
   return `${v.toFixed(1)} PB`;
+}
+
+function mergeCopiedTables(
+  base: Array<{ name: string; rows: number }>,
+  delta: Array<{ name: string; added: number }>,
+): Array<{ name: string; rows: number }> {
+  const merged = new Map(base.map((entry) => [entry.name, entry.rows]));
+  for (const entry of delta) {
+    merged.set(entry.name, (merged.get(entry.name) ?? 0) + entry.added);
+  }
+  return Array.from(merged.entries()).map(([name, rows]) => ({ name, rows }));
 }

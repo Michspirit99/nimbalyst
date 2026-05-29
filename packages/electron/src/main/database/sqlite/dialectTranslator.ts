@@ -102,7 +102,7 @@ export function translateSql(sql: string): TranslateResult {
   out = out.replace(CURRENT_TIMESTAMP_RE, "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
   out = out.replace(
     EXTRACT_EPOCH_MS_RE,
-    "CAST(round(unixepoch($1, 'subsec') * 1000) AS INTEGER)",
+    (_m, expr: string) => `CAST(round(unixepoch(${expr.trim()}, 'subsec') * 1000) AS INTEGER)`,
   );
 
   // Step 4: jsonb_set(col, '{a,b}', value) -> json_set(col, '$.a.b', value).

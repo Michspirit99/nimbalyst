@@ -13,15 +13,36 @@ import * as os from 'os';
 import * as path from 'path';
 import { PGlite } from '@electric-sql/pglite';
 import { MigrationOrchestrator, type LivePgliteReader } from '../MigrationOrchestrator';
+import type { PGLiteHandle } from '../PGLiteToSQLiteMigrator';
 
-async function openPgliteReader(dataDir: string): Promise<{ reader: LivePgliteReader; close: () => Promise<void> }> {
+async function openPgliteReader(dataDir: string): Promise<{
+  db: PGlite;
+  reader: LivePgliteReader;
+  close: () => Promise<void>;
+}> {
   const db = new PGlite({ dataDir });
   await (db as unknown as { waitReady: Promise<void> }).waitReady;
   const reader: LivePgliteReader = {
     queryReadOnly: async <T,>(sql: string, params?: unknown[]) =>
       db.query<T>(sql, params) as Promise<{ rows: T[] }>,
   };
-  return { reader, close: () => db.close() };
+  return { db, reader, close: () => db.close() };
+}
+
+async function reopenPgliteHandle(dataDir: string): Promise<PGLiteHandle> {
+  const db = new PGlite({ dataDir });
+  await (db as unknown as { waitReady: Promise<void> }).waitReady;
+  return {
+    async query<T>(sql: string, params?: unknown[]) {
+      return db.query<T>(sql, params as unknown[]) as Promise<{ rows: T[] }>;
+    },
+    async exec(sql: string) {
+      return db.exec(sql);
+    },
+    async close() {
+      await db.close();
+    },
+  };
 }
 import { readBackendState } from '../BackendSelector';
 import { MigrationProgressReporter } from '../MigrationProgressReporter';
@@ -90,6 +111,7 @@ describe('MigrationOrchestrator', () => {
       schemaDir: SCHEMA_DIR,
       pglite: reader,
       closeRunningPglite,
+      reopenPgliteAfterClose: reopenPgliteHandle,
       onCutoverSuccess: cutoverSpy,
       log: () => {},
     });
@@ -134,6 +156,7 @@ describe('MigrationOrchestrator', () => {
       schemaDir: path.join(tmp, 'no-such-schemas'),
       pglite: reader,
       closeRunningPglite: async () => { await close(); },
+      reopenPgliteAfterClose: reopenPgliteHandle,
       reporter,
       log: () => {},
     });
@@ -160,6 +183,7 @@ describe('MigrationOrchestrator', () => {
       schemaDir: SCHEMA_DIR,
       pglite: stubReader,
       closeRunningPglite: async () => undefined,
+      reopenPgliteAfterClose: reopenPgliteHandle,
     });
     const pre = await orch.preflight();
     expect(pre.ok).toBe(false);
@@ -179,11 +203,52 @@ describe('MigrationOrchestrator', () => {
       schemaDir: SCHEMA_DIR,
       pglite: reader,
       closeRunningPglite: async () => { await close(); },
+      reopenPgliteAfterClose: reopenPgliteHandle,
     });
     await orch.run();
 
     const aside = fs.readdirSync(userDataPath).find((d) => d.startsWith('sqlite-db.aborted-'));
     expect(aside).toBeTruthy();
     expect(fs.existsSync(path.join(userDataPath, aside!, 'stale-marker.txt'))).toBe(true);
+  });
+
+  it('captures writes that land after the bulk copy but before cutover', async () => {
+    await buildFixturePglite();
+
+    const { db, reader, close } = await openPgliteReader(pgliteDir);
+    const closeRunningPglite = vi.fn(async () => {
+      await db.query(
+        `INSERT INTO ai_sessions(id, provider, title, metadata)
+         VALUES ($1, $2, $3, $4::jsonb)`,
+        ['late-write', 'claude', 'arrived during cutover', JSON.stringify({ pinned: true })],
+      );
+      await close();
+    });
+
+    const orch = new MigrationOrchestrator({
+      userDataPath,
+      schemaDir: SCHEMA_DIR,
+      pglite: reader,
+      closeRunningPglite,
+      reopenPgliteAfterClose: reopenPgliteHandle,
+    });
+
+    await orch.run();
+
+    const sqliteDir = path.join(userDataPath, 'sqlite-db');
+    const sqlitePath = path.join(sqliteDir, 'nimbalyst.sqlite');
+    expect(fs.existsSync(sqlitePath)).toBe(true);
+
+    const sqliteDb = new (await import('../SQLiteDatabase')).SQLiteDatabase({
+      dbDir: sqliteDir,
+      schemaDir: SCHEMA_DIR,
+    });
+    await sqliteDb.initialize();
+    const result = await sqliteDb.query<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM ai_sessions WHERE id = $1`,
+      ['late-write'],
+    );
+    expect(Number(result.rows[0]?.c ?? 0)).toBe(1);
+    await sqliteDb.close();
   });
 });

@@ -27,6 +27,7 @@ import inspector from 'node:inspector';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { PGlite } from '@electric-sql/pglite';
 import { SQLiteDatabase } from '../SQLiteDatabase';
 import { SQLiteBackupService } from '../../../services/database/SQLiteBackupService';
 import { MigrationOrchestrator, type LivePgliteReader as OrchestratorLivePgliteReader } from '../MigrationOrchestrator';
@@ -53,6 +54,7 @@ import {
   type PgliteReadResponsePayload,
   type WorkerControlRequestPayload,
 } from './workerProtocol';
+import type { PGLiteHandle } from '../PGLiteToSQLiteMigrator';
 
 if (!parentPort) {
   throw new Error('sqliteWorker must run as a worker_threads Worker');
@@ -275,6 +277,22 @@ async function bridgeClosePglite(): Promise<void> {
   );
 }
 
+async function reopenClosedPglite(dataDir: string): Promise<PGLiteHandle> {
+  const db = new PGlite({ dataDir });
+  await (db as unknown as { waitReady: Promise<void> }).waitReady;
+  return {
+    async query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
+      return db.query<T>(sql, params as unknown[]) as Promise<{ rows: T[] }>;
+    },
+    async exec(sql: string): Promise<unknown> {
+      return db.exec(sql);
+    },
+    async close(): Promise<void> {
+      await db.close();
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Request dispatch.
 // ---------------------------------------------------------------------------
@@ -409,6 +427,7 @@ async function handle(req: RequestEnvelope): Promise<unknown> {
           schemaDir,
           pglite: buildPgliteReader(),
           closeRunningPglite: bridgeClosePglite,
+          reopenPgliteAfterClose: reopenClosedPglite,
           onCutoverSuccess: async (info) => {
             emit('db:migration:cutoverSuccess', {
               sqliteDir: info.sqliteDir,
@@ -482,6 +501,7 @@ async function handle(req: RequestEnvelope): Promise<unknown> {
           schemaDir,
           pglite: buildPgliteReader(),
           closeRunningPglite: bridgeClosePglite,
+          reopenPgliteAfterClose: reopenClosedPglite,
           onCutoverSuccess: async (info) => {
             emit('db:migration:cutoverSuccess', {
               sqliteDir: info.sqliteDir,

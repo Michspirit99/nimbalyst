@@ -23,6 +23,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { MigrationOrchestrator, type LivePgliteReader } from '../MigrationOrchestrator';
+import type { PGLiteHandle } from '../PGLiteToSQLiteMigrator';
 
 async function openPgliteReader(dataDir: string): Promise<{ reader: LivePgliteReader; close: () => Promise<void> }> {
   const db = new PGlite({ dataDir });
@@ -32,6 +33,22 @@ async function openPgliteReader(dataDir: string): Promise<{ reader: LivePgliteRe
       db.query<T>(sql, params) as Promise<{ rows: T[] }>,
   };
   return { reader, close: () => db.close() };
+}
+
+async function reopenPgliteHandle(dataDir: string): Promise<PGLiteHandle> {
+  const db = new PGlite({ dataDir });
+  await (db as unknown as { waitReady: Promise<void> }).waitReady;
+  return {
+    async query<T>(sql: string, params?: unknown[]) {
+      return db.query<T>(sql, params as unknown[]) as Promise<{ rows: T[] }>;
+    },
+    async exec(sql: string) {
+      return db.exec(sql);
+    },
+    async close() {
+      await db.close();
+    },
+  };
 }
 import { SQLiteDatabase } from '../SQLiteDatabase';
 import { createSQLiteStoreAdapter } from '../SQLiteStoreAdapter';
@@ -230,6 +247,7 @@ describe('MigrationOrchestrator fixture round-trip', () => {
       schemaDir: SCHEMA_DIR,
       pglite: reader,
       closeRunningPglite: async () => { await close(); },
+      reopenPgliteAfterClose: reopenPgliteHandle,
       log: () => undefined,
     });
     const summary = await orch.run();

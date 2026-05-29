@@ -20,7 +20,11 @@ import { app } from 'electron';
 import * as path from 'path';
 import { safeHandle } from '../utils/ipcRegistry';
 import { logger } from '../utils/logger';
-import { getMigrationProxy } from '../database/initialize';
+import {
+  getLiveSqliteDatabaseProxy,
+  getMigrationProxy,
+  stopPeriodicBackupTimer,
+} from '../database/initialize';
 import { resolveBackend, readBackendState, commitRollbackToPglite } from '../database/sqlite/BackendSelector';
 import { AnalyticsService } from '../services/analytics/AnalyticsService';
 import * as fs from 'fs';
@@ -206,7 +210,18 @@ export function registerMigrationHandlers(): void {
 
   safeHandle('db:migration:rollback', async () => {
     try {
-      const proxy = await getMigrationProxy();
+      stopPeriodicBackupTimer();
+      const liveSqlite = getLiveSqliteDatabaseProxy();
+      let proxy = liveSqlite;
+      if (liveSqlite) {
+        // The active SQLite worker owns the better-sqlite3 handle, so it must
+        // be shut down before we can rename sqlite-db/ during rollback.
+        await liveSqlite.close();
+        proxy = liveSqlite;
+      }
+      if (!proxy) {
+        proxy = await getMigrationProxy();
+      }
       const { restoredFrom } = await proxy.rollback({ userDataPath: getUserDataPath() });
       commitRollbackToPglite(getUserDataPath());
       return { success: true, restoredFrom };

@@ -108,6 +108,12 @@ export interface DryRunManifest {
   }>;
 }
 
+export interface CatchUpResult {
+  rowsAdded: number;
+  perTable: Array<{ name: string; added: number }>;
+  manifest: DryRunManifest;
+}
+
 export interface MigrateOptions {
   pglite: PGLiteHandle;
   sqlite: SQLiteDatabase;
@@ -150,26 +156,24 @@ const COPY_TABLES: readonly string[] = [
 ];
 
 /**
- * Single-column primary keys we can use for cursor pagination. Tables not in
- * this map (composite PKs, or empty/tiny) fall back to LIMIT/OFFSET. Cursor
- * pagination is O(n) instead of O(n^2) and is the dominant speedup for the
- * large message log.
+ * Single-column primary keys we can use for cursor pagination.
+ *
+ * IMPORTANT: only monotonically increasing INTEGER keys belong here. Text
+ * IDs (UUIDs/ULIDs/etc.) are fine for the initial full copy, but they are
+ * unsafe for incremental catch-up because a newly inserted row can sort
+ * *before* the previous high-water mark and be skipped forever.
+ *
+ * Tables not in this map fall back to LIMIT/OFFSET for the initial full copy
+ * and full re-copy during catch-up. That's slower, but it is exact.
  */
 const CURSOR_COLUMNS: Record<string, string> = {
-  worktrees: 'id',
-  ai_sessions: 'id',
   document_history: 'id',
-  session_files: 'id',
   ai_agent_messages: 'id',
   ai_tool_call_file_edits: 'id',
-  tracker_items: 'id',
-  queued_prompts: 'id',
-  ai_session_wakeups: 'id',
-  super_loops: 'id',
-  super_iterations: 'id',
-  // tracker_body_cache: composite (item_id, body_version) — small table, OFFSET fine
-  // tracker_transactions: 3 rows — OFFSET fine
-  // collab_local_origins: composite (org_id, document_id) — 11 rows, OFFSET fine
+  // Text-ID and composite-PK tables intentionally fall back to safe re-copy:
+  // worktrees, ai_sessions, session_files, tracker_items, queued_prompts,
+  // ai_session_wakeups, super_loops, super_iterations, tracker_body_cache,
+  // tracker_transactions, collab_local_origins.
 };
 
 interface TargetColumn {
@@ -487,7 +491,7 @@ export class PGLiteToSQLiteMigrator {
     onProgress?: (progress: MigrationProgress) => void;
     batchSize?: number;
     log?: NonNullable<MigrateOptions['log']>;
-  }): Promise<{ rowsAdded: number; perTable: Array<{ name: string; added: number }> }> {
+  }): Promise<CatchUpResult> {
     const t0 = performance.now();
     const batchSize = opts.batchSize ?? 5000;
     const log = opts.log ?? (() => {});
@@ -497,6 +501,7 @@ export class PGLiteToSQLiteMigrator {
     sqliteHandle.pragma('foreign_keys = OFF');
 
     const perTable: Array<{ name: string; added: number }> = [];
+    const manifestPerTable: DryRunManifest['perTable'] = [];
     let totalAdded = 0;
     const manifestByTable = new Map(opts.manifest.perTable.map((t) => [t.name, t]));
     // Measure current PGLite counts so we can show "X new rows" in the UI.
@@ -528,7 +533,7 @@ export class PGLiteToSQLiteMigrator {
 
       if (cursorColumn && stored?.cursorMax !== undefined) {
         // Cursor catch-up: copy rows with PK > stored.cursorMax.
-        const { copied } = await this.copyTable({
+        const { copied, cursorMax } = await this.copyTable({
           sourceTable: name,
           expectedRows: Math.max(0, currentTotal - stored.rows),
           pglite: opts.pglite,
@@ -558,12 +563,18 @@ export class PGLiteToSQLiteMigrator {
           log,
         });
         added = copied;
+        manifestPerTable.push({
+          name,
+          rows: currentTotal,
+          cursorColumn,
+          cursorMax,
+        });
       } else {
         // No cursor or no prior manifest entry: re-copy the whole table.
         // Cheap for the small composite-PK tables we have. DELETE first so
         // updated rows replace what was there.
         sqliteHandle.exec(`DELETE FROM ${quoteIdent(name)}`);
-        const { copied } = await this.copyTable({
+        const { copied, cursorMax } = await this.copyTable({
           sourceTable: name,
           expectedRows: currentTotal,
           pglite: opts.pglite,
@@ -576,6 +587,12 @@ export class PGLiteToSQLiteMigrator {
           log,
         });
         added = copied - (stored?.rows ?? 0);
+        manifestPerTable.push({
+          name,
+          rows: currentTotal,
+          cursorColumn,
+          cursorMax,
+        });
       }
 
       perTable.push({ name, added });
@@ -592,7 +609,15 @@ export class PGLiteToSQLiteMigrator {
     }
 
     log('info', '[catchUp] complete', { totalAdded, durationMs: performance.now() - t0 });
-    return { rowsAdded: totalAdded, perTable };
+    return {
+      rowsAdded: totalAdded,
+      perTable,
+      manifest: {
+        completedAt: new Date().toISOString(),
+        durationMs: performance.now() - t0,
+        perTable: manifestPerTable,
+      },
+    };
   }
 
   // --------------------------------------------------------------------------

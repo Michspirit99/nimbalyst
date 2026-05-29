@@ -349,6 +349,10 @@ export function getDatabase() {
   return database;
 }
 
+export function getLiveSqliteDatabaseProxy(): SQLiteDatabaseProxy | null {
+  return sqliteDatabase;
+}
+
 /**
  * Stop the periodic-backup interval. Must be called before db.close() during
  * shutdown, otherwise the timer can fire after the SQLite handle is closed
