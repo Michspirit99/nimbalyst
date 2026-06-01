@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Changes to existing functionality go here -->
 
 ### Fixed
-<!-- Bug fixes go here -->
+- Fixed multi-minute beachball at startup for users with many shared trackers. The `document-sync:open` IPC now single-flights and caches the org-key-fingerprint HTTPS check per orgId (60s TTL) instead of firing one HTTPS call per opened document, and the tracker prewarm hook drops its limit from 50 to 10 and debounces 2s to avoid piling onto the restore wave.
 
 ### Removed
 <!-- Removed features go here -->
