@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Quick Open file search no longer lags because hidden tabs stop re-rendering on each keystroke.
 - Fixed an EPIPE feedback loop where the main-process uncaught-exception handler re-entered itself when stderr was broken on Linux, flooding the log until the process died.
 - Meta-agent child sessions now inherit the parent session's provider and model instead of silently falling back to a Claude/Opus default for non-Claude parents.
 - iOS: fast typing into the prompt input no longer jumbles characters; synced drafts are no longer applied while the compose field has keyboard focus.
