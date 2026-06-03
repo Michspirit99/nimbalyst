@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Terminal scrollback no longer discards all saved history (and shows the "could not be restored cleanly" banner) over a single stray NUL byte; the restore notice also moves off the prompt line and auto-dismisses.
 
 ### Removed
 <!-- Removed features go here -->
