@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- New features go here -->
 - File paths mentioned in AI transcripts are now clickable links that open the file, even when the agent writes them as plain text or inline code.
 - New Browser Tab command in the File menu (Cmd+Shift+B) opens a browser virtual tab in files mode.
+- Quick Open's Sessions tab can now search message contents (Shift+Tab or the in-input button), not just titles.
 
 ### Changed
 <!-- Changes to existing functionality go here -->
