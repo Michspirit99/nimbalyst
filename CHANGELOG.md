@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Claude Code sessions use the SDK's `permissionMode: 'auto'` classifier when workspace trust is "Allow All"; safe operations run silently, uncertain ones prompt the user. (#379)
 - File paths mentioned in AI transcripts are now clickable links that open the file, even when the agent writes them as plain text or inline code.
 - New Browser Tab command in the File menu (Cmd+Shift+B) opens a browser virtual tab in files mode.
 - Quick Open's Sessions tab can now search message contents (Shift+Tab or the in-input button), not just titles.
