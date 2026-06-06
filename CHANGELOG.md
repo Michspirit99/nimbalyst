@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PR review Files Changed adds a "Collapsed diff" mode: a scrollable diff across all changed files with syntax highlighting, line numbers, and red/green backgrounds, switchable between unified and side-by-side (split) layouts. (#307)
 - Refresh button in the Files Mode sidebar header reloads the file tree from disk without using the Developer menu. (#259)
 <!-- New features go here -->
+- Sync WebSocket connections now send `platform` and `version` query params so the server can attribute connect/disconnect telemetry to each client build.
 - Claude Code sessions use the SDK's `permissionMode: 'auto'` classifier when workspace trust is "Allow All"; safe operations run silently, uncertain ones prompt the user. (#379)
 - File paths mentioned in AI transcripts are now clickable links that open the file, even when the agent writes them as plain text or inline code.
 - New Browser Tab command in the File menu (Cmd+Shift+B) opens a browser virtual tab in files mode.

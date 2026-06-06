@@ -18,6 +18,7 @@
 
 import type { AgentMessage } from '../ai/server/types';
 import { shouldSyncMessageForSessionRoom, truncateContentForSync } from './syncContentTruncator';
+import { appendSyncClientParams } from './syncClientInfo';
 import type {
   SyncConfig,
   SyncStatus,
@@ -1635,7 +1636,7 @@ export function createCollabV3Sync(config: SyncConfig): SyncProvider {
     console.log('[CollabV3] connectToIndex() roomId:', indexRoomId, 'orgId:', config.orgId, 'userId:', getUserId());
     const url = getWebSocketUrl(indexRoomId);
     // Pass JWT via query parameter (WebSocket doesn't support custom headers in browsers)
-    const wsUrl = `${url}?token=${encodeURIComponent(jwt)}`;
+    const wsUrl = appendSyncClientParams(`${url}?token=${encodeURIComponent(jwt)}`);
 
     indexWs = new WebSocket(wsUrl);
 
@@ -2315,7 +2316,7 @@ export function createCollabV3Sync(config: SyncConfig): SyncProvider {
     const roomId = getRoomId(sessionId);
     const url = getWebSocketUrl(roomId);
     // Pass JWT via query parameter (WebSocket doesn't support custom headers in browsers)
-    const wsUrl = `${url}?token=${encodeURIComponent(jwt)}`;
+    const wsUrl = appendSyncClientParams(`${url}?token=${encodeURIComponent(jwt)}`);
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
@@ -2706,7 +2707,7 @@ export function createCollabV3Sync(config: SyncConfig): SyncProvider {
       const roomId = getRoomId(sessionId);
       const url = getWebSocketUrl(roomId);
       // Pass JWT via query parameter (WebSocket doesn't support custom headers in browsers)
-      const wsUrl = `${url}?token=${encodeURIComponent(jwt)}`;
+      const wsUrl = appendSyncClientParams(`${url}?token=${encodeURIComponent(jwt)}`);
 
       return new Promise((resolve, reject) => {
         const ws = new WebSocket(wsUrl);

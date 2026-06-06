@@ -304,6 +304,10 @@ function getDeviceInfo(userId: string): DeviceInfo {
 export async function initializeSync(baseStore: SessionStore): Promise<SessionStore> {
   logger.main.info('[SyncManager] initializeSync called');
 
+  // Label every sync WebSocket connection with this client build so the server
+  // can attribute connect/disconnect telemetry to a platform + version.
+  syncModule.setSyncClientInfo({ platform: 'desktop', version: app.getVersion() });
+
   const config = getSessionSyncConfig();
   logger.main.info('[SyncManager] config:', JSON.stringify(config));
 

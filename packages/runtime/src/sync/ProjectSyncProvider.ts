@@ -31,6 +31,7 @@ import type {
   FileContentBroadcastMessage,
   FileDeleteBroadcastMessage,
 } from '@nimbalyst/collab-protocol';
+import { appendSyncClientParams } from './syncClientInfo';
 
 
 export interface ProjectSyncConfig {
@@ -138,7 +139,7 @@ export class ProjectSyncProvider {
         .replace(/\/+$/, '');
 
       const encodedToken = encodeURIComponent(jwt);
-      const url = `${wsBase}/sync/${roomId}?token=${encodedToken}`;
+      const url = appendSyncClientParams(`${wsBase}/sync/${roomId}?token=${encodedToken}`);
 
       const ws = new WebSocket(url);
       this.connections.set(projectId, ws);
