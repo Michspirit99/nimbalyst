@@ -40,7 +40,7 @@ export interface ClaudeCliInterruptDeps {
 }
 
 export interface ClaudeCliInterruptResult {
-  resolvedAfter: 'first-interrupt' | 'second-interrupt' | 'sigint' | 'unresolved';
+  resolvedAfter: 'already-idle' | 'first-interrupt' | 'second-interrupt' | 'sigint' | 'unresolved';
 }
 
 const defaultDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -55,6 +55,14 @@ export async function escalateClaudeCliInterrupt(
 ): Promise<ClaudeCliInterruptResult> {
   const delay = deps.delay ?? defaultDelay;
   const log = deps.log ?? (() => {});
+
+  // NIM-842: idle/waiting turns have nothing to interrupt. Writing Ctrl-C
+  // anyway pushes a keystroke into the idle TUI, and the claude TUI treats
+  // Ctrl-C at an idle prompt as "press again to exit" — so two interrupts
+  // against an idle session quit the CLI. Bail before writing.
+  if (isResolved(await deps.readTurnState())) {
+    return { resolvedAfter: 'already-idle' };
+  }
 
   deps.write(CLAUDE_CLI_INTERRUPT);
   await delay(STEP_SETTLE_MS);

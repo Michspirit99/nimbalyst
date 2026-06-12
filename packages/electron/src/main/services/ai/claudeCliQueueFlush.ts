@@ -39,6 +39,12 @@ export interface FlushClaudeCliQueueDeps {
     attachments?: ChatAttachment[];
     documentContext?: ClaudeCliDocumentContext | null;
   }) => Promise<{ submitted: boolean }>;
+  /**
+   * Tell the renderer a queued prompt has left the pending queue, so it drops
+   * the row from the queued-prompts UI (NIM-830). Mirrors the SDK dispatcher's
+   * `ai:promptClaimed`. Fired right after a successful claim.
+   */
+  notifyClaimed?: (promptId: string) => void;
 }
 
 /**
@@ -55,6 +61,8 @@ export async function flushNextClaudeCliQueuedPrompt(
 
   const claimed = await deps.claim(pending[0].id);
   if (!claimed) return false;
+
+  deps.notifyClaimed?.(claimed.id);
 
   try {
     const { submitted } = await deps.submit({

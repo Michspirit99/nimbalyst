@@ -44,10 +44,16 @@ export interface RevealDrawerDecision extends RevealDrawerState {
  *
  * - interactive (output) + user-collapsed → NO change (NIM-820: the PTY picker
  *   sniffer fires on ordinary output; never reopen a drawer the user closed)
- * - interactive + collapsed  → expand, mark auto-revealed, clear user-collapsed, focus
- * - interactive + expanded   → keep, focus (drive the picker already on-screen)
+ * - interactive + collapsed  → expand, mark auto-revealed, clear user-collapsed
+ * - interactive + expanded   → keep
  * - normal + auto-revealed   → collapse, clear flag (return to where the user was)
  * - normal + user/default    → no change
+ *
+ * Focus only pulses for input-sourced interactive reveals (the user deliberately
+ * submitted an allowlisted command like /model). Output-sourced reveals come from
+ * the PTY sniffer, which false-positives on ordinary output containing the Ink
+ * caret glyph (vitest, autocomplete dropdowns, fancy prompts); focusing on those
+ * yanks the cursor out of the chat input mid-sentence (NIM-828).
  */
 export function computeRevealDrawerAction(
   current: RevealDrawerState,
@@ -59,9 +65,9 @@ export function computeRevealDrawerAction(
       return { ...current, focus: false };
     }
     if (!current.expanded) {
-      return { expanded: true, autoRevealed: true, userCollapsed: false, focus: true };
+      return { expanded: true, autoRevealed: true, userCollapsed: false, focus: source === 'input' };
     }
-    return { ...current, userCollapsed: false, focus: true };
+    return { ...current, userCollapsed: false, focus: source === 'input' };
   }
   if (current.autoRevealed) {
     return { ...current, expanded: false, autoRevealed: false, focus: false };

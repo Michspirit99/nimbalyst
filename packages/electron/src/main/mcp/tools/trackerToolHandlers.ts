@@ -187,6 +187,21 @@ function appendActivity(
 }
 
 /**
+ * Read linkedTrackerItemIds from a raw ai_sessions.metadata column value.
+ * Whole-column JSON reads return a parsed object on PGLite but a raw JSON
+ * string on SQLite (NIM-829; see packages/electron/DATABASE.md), so every
+ * consumer must parse defensively or SQLite sees an empty list — which
+ * clobbered links on write and broadcast zero linked items to renderers.
+ */
+export function readLinkedTrackerItemIds(rawMetadata: unknown): string[] {
+  const metadata =
+    typeof rawMetadata === 'string'
+      ? JSON.parse(rawMetadata)
+      : (rawMetadata as Record<string, any>) ?? {};
+  return Array.isArray(metadata?.linkedTrackerItemIds) ? metadata.linkedTrackerItemIds : [];
+}
+
+/**
  * Create a bidirectional link between a tracker item and an AI session.
  * - Adds sessionId to tracker item's data.linkedSessions[]
  * - Adds trackerId to session's metadata.linkedTrackerItemIds[]
@@ -237,8 +252,7 @@ export async function createBidirectionalLink(
     [sessionId]
   );
   if (sessionResult.rows.length > 0) {
-    const metadata = sessionResult.rows[0].metadata ?? {};
-    const linkedTrackerItemIds: string[] = metadata.linkedTrackerItemIds || [];
+    const linkedTrackerItemIds = readLinkedTrackerItemIds(sessionResult.rows[0].metadata);
     if (!linkedTrackerItemIds.includes(trackerId)) {
       linkedTrackerItemIds.push(trackerId);
       await db.query(
@@ -307,10 +321,7 @@ export async function removeBidirectionalLink(
     [sessionId]
   );
   if (sessionResult.rows.length > 0) {
-    const metadata = sessionResult.rows[0].metadata ?? {};
-    const linkedTrackerItemIds: string[] = Array.isArray(metadata.linkedTrackerItemIds)
-      ? metadata.linkedTrackerItemIds
-      : [];
+    const linkedTrackerItemIds = readLinkedTrackerItemIds(sessionResult.rows[0].metadata);
     const nextLinkedTrackerItemIds = linkedTrackerItemIds.filter((linkedTrackerId) => linkedTrackerId !== trackerId);
     if (nextLinkedTrackerItemIds.length !== linkedTrackerItemIds.length) {
       const nextMetadata =
@@ -1749,7 +1760,7 @@ export async function handleTrackerCreate(
         `SELECT metadata FROM ai_sessions WHERE id = $1`,
         [sessionId]
       );
-      const linkedIds = sessionResult.rows[0]?.metadata?.linkedTrackerItemIds || [];
+      const linkedIds = readLinkedTrackerItemIds(sessionResult.rows[0]?.metadata);
       await notifySessionLinkedTrackerChanged(sessionId, linkedIds);
     }
 
@@ -2011,7 +2022,7 @@ export async function handleTrackerUpdate(
               `SELECT metadata FROM ai_sessions WHERE id = $1`,
               [sessionId]
             );
-            const linkedIds = sessionResult.rows[0]?.metadata?.linkedTrackerItemIds || [];
+            const linkedIds = readLinkedTrackerItemIds(sessionResult.rows[0]?.metadata);
             await notifySessionLinkedTrackerChanged(sessionId, linkedIds);
           }
         }
@@ -2284,7 +2295,7 @@ export async function handleTrackerUpdate(
             `SELECT metadata FROM ai_sessions WHERE id = $1`,
             [sessionId]
           );
-          const linkedIds = sessionResult.rows[0]?.metadata?.linkedTrackerItemIds || [];
+          const linkedIds = readLinkedTrackerItemIds(sessionResult.rows[0]?.metadata);
           await notifySessionLinkedTrackerChanged(sessionId, linkedIds);
         }
       }
@@ -2465,7 +2476,7 @@ export async function handleTrackerLinkSession(
         `SELECT metadata FROM ai_sessions WHERE id = $1`,
         [targetSessionId]
       );
-      const linkedIds = sessionResult.rows[0]?.metadata?.linkedTrackerItemIds || [];
+      const linkedIds = readLinkedTrackerItemIds(sessionResult.rows[0]?.metadata);
       await notifySessionLinkedTrackerChanged(targetSessionId, linkedIds);
 
       const structured = {
@@ -2583,7 +2594,7 @@ export async function handleTrackerUnlinkSession(
         [targetSessionId]
       );
       if (sessionResult.rows.length > 0) {
-        const linkedIds = sessionResult.rows[0]?.metadata?.linkedTrackerItemIds || [];
+        const linkedIds = readLinkedTrackerItemIds(sessionResult.rows[0]?.metadata);
         await notifySessionLinkedTrackerChanged(targetSessionId, linkedIds);
       }
 
@@ -2677,8 +2688,7 @@ export async function handleTrackerLinkFile(
       };
     }
 
-    const metadata = sessionResult.rows[0].metadata ?? {};
-    const linkedTrackerItemIds: string[] = metadata.linkedTrackerItemIds || [];
+    const linkedTrackerItemIds = readLinkedTrackerItemIds(sessionResult.rows[0].metadata);
     if (!linkedTrackerItemIds.includes(fileRef)) {
       linkedTrackerItemIds.push(fileRef);
       await db.query(

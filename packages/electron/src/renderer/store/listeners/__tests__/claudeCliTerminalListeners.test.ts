@@ -86,10 +86,42 @@ describe('computeRevealDrawerAction', () => {
       });
     });
 
-    it('an output-sourced reveal still expands a drawer the user never closed', () => {
+    it('an output-sourced reveal still expands a drawer the user never closed — without focus', () => {
       expect(computeRevealDrawerAction(state(), true, 'output')).toEqual({
         expanded: true,
         autoRevealed: true,
+        userCollapsed: false,
+        focus: false,
+      });
+    });
+  });
+
+  /**
+   * NIM-828: detectCliPickerInChunk false-positives on ordinary CLI output
+   * (vitest output, slash-autocomplete dropdowns, fancy shell prompts all
+   * contain the Ink caret glyph). Every output-sourced reveal used to pulse
+   * focus, yanking the cursor out of the chat input mid-sentence. Output
+   * reveals may still expand the drawer visually but must NEVER focus it;
+   * only a deliberate input-sourced command focuses.
+   */
+  describe('output reveals never steal focus (NIM-828)', () => {
+    it('interactive + output + drawer already expanded: no state change, no focus', () => {
+      expect(
+        computeRevealDrawerAction(state({ expanded: true }), true, 'output'),
+      ).toEqual({
+        expanded: true,
+        autoRevealed: false,
+        userCollapsed: false,
+        focus: false,
+      });
+    });
+
+    it('interactive + input + drawer expanded still focuses (deliberate user command)', () => {
+      expect(
+        computeRevealDrawerAction(state({ expanded: true }), true, 'input'),
+      ).toEqual({
+        expanded: true,
+        autoRevealed: false,
         userCollapsed: false,
         focus: true,
       });

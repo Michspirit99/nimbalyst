@@ -29,23 +29,46 @@ function harness(stateSequence: Array<ClaudeTurnState | null>) {
 }
 
 describe('escalateClaudeCliInterrupt', () => {
-  it('stops after the first Ctrl-C when the turn resolves', async () => {
+  /**
+   * NIM-842: an interrupt against an already-resolved turn must be a no-op.
+   * Writing Ctrl-C anyway pushes a keystroke into the idle TUI; the claude TUI
+   * treats Ctrl-C at an idle prompt as "press again to exit", so two interrupt
+   * requests against an idle session quit the CLI entirely (exit code 0) and
+   * every later prompt is dropped into a dead terminal.
+   */
+  it('is a no-op (no write, no kill) when the turn is already idle', async () => {
     const h = harness(['idle']);
+    const outcome = await h.result;
+    expect(h.writes).toEqual([]);
+    expect(h.kills).toEqual([]);
+    expect(outcome.resolvedAfter).toBe('already-idle');
+  });
+
+  it('is a no-op when the turn is already waiting_for_input', async () => {
+    const h = harness(['waiting_for_input']);
+    const outcome = await h.result;
+    expect(h.writes).toEqual([]);
+    expect(h.kills).toEqual([]);
+    expect(outcome.resolvedAfter).toBe('already-idle');
+  });
+
+  it('stops after the first Ctrl-C when the turn resolves', async () => {
+    const h = harness(['running', 'idle']);
     const outcome = await h.result;
     expect(h.writes).toEqual([CLAUDE_CLI_INTERRUPT]);
     expect(h.kills).toEqual([]);
     expect(outcome.resolvedAfter).toBe('first-interrupt');
   });
 
-  it('treats waiting_for_input as resolved (turn no longer running)', async () => {
-    const h = harness(['waiting_for_input']);
+  it('treats waiting_for_input after the first Ctrl-C as resolved (turn no longer running)', async () => {
+    const h = harness(['running', 'waiting_for_input']);
     const outcome = await h.result;
     expect(h.writes).toEqual([CLAUDE_CLI_INTERRUPT]);
     expect(outcome.resolvedAfter).toBe('first-interrupt');
   });
 
   it('sends a second Ctrl-C when still running, and stops there if it works', async () => {
-    const h = harness(['running', 'idle']);
+    const h = harness(['running', 'running', 'idle']);
     const outcome = await h.result;
     expect(h.writes).toEqual([CLAUDE_CLI_INTERRUPT, CLAUDE_CLI_INTERRUPT]);
     expect(h.kills).toEqual([]);
@@ -53,7 +76,7 @@ describe('escalateClaudeCliInterrupt', () => {
   });
 
   it('escalates to SIGINT when both Ctrl-Cs are ignored', async () => {
-    const h = harness(['running', 'running', 'idle']);
+    const h = harness(['running', 'running', 'running', 'idle']);
     const outcome = await h.result;
     expect(h.writes).toEqual([CLAUDE_CLI_INTERRUPT, CLAUDE_CLI_INTERRUPT]);
     expect(h.kills).toEqual(['SIGINT']);
@@ -61,14 +84,14 @@ describe('escalateClaudeCliInterrupt', () => {
   });
 
   it('reports unresolved when even SIGINT does not clear the turn', async () => {
-    const h = harness(['running', 'running', 'running']);
+    const h = harness(['running', 'running', 'running', 'running']);
     const outcome = await h.result;
     expect(h.kills).toEqual(['SIGINT']);
     expect(outcome.resolvedAfter).toBe('unresolved');
   });
 
   it('keeps escalating while the state is unknown (null) — an unobservable turn is not a resolved one', async () => {
-    const h = harness([null, null, 'idle']);
+    const h = harness([null, null, null, 'idle']);
     const outcome = await h.result;
     expect(h.writes).toEqual([CLAUDE_CLI_INTERRUPT, CLAUDE_CLI_INTERRUPT]);
     expect(h.kills).toEqual(['SIGINT']);
