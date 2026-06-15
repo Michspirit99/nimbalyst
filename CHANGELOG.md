@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - "Allow All" permission mode again auto-approves every operation without prompts; the Claude Code safety classifier is now an opt-in toggle per project instead of being forced on.
 - Auto-commit now retries with backoff when another git process briefly holds .git/index.lock, so concurrent sessions commit on the first try instead of failing and being misreported as "no changes".
 - Fixed an Electron crash when a worktree produced a filesystem-event storm; the workspace watcher now shuts down safely instead of aborting the app.
+- Background-project Claude Code CLI sessions no longer spawn (and hit the subscription rate limit) when the app is reactivated; only the window you actually bring to the front resumes its session.
+- Claude Code CLI sessions: the "Thinking…" indicator no longer disappears for the rest of a turn after you answer a question, and a pending question now correctly shows as awaiting input rather than running.
 
 ### Removed
 <!-- Removed features go here -->

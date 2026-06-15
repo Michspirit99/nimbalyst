@@ -134,6 +134,45 @@ describe('lifecycle: session:waiting', () => {
     expect(store.get(sessionHasPendingInteractivePromptAtom(sid))).toBe(true);
     expect(store.get(sessionProcessingAtom(sid))).toBe(true);
   });
+
+  // NIM-850: the genuine Claude CLI writes a coarse `waiting` pid status that
+  // fires transiently mid-turn (e.g. while blocked on a tool/MCP round-trip),
+  // not just for real user prompts. AND it has no symmetric clear, so once set it
+  // suppressed the "Thinking…" indicator for the rest of the turn. For
+  // claude-code-cli sessions, session:waiting must NOT set the pending flag — the
+  // flag is driven by the explicit prompt-lifecycle broadcasts (ai:askUserQuestion
+  // / ai:requestUserInput, set AND cleared by the MCP handler). The session stays
+  // "processing" so the indicator keeps showing between prompts.
+  it('does NOT set the pending interactive prompt flag for claude-code-cli (NIM-850)', () => {
+    const sid = uniqueSessionId('waiting-cli');
+    seedRegistry([{ id: sid, provider: 'claude-code-cli', workspaceId: WS }]);
+
+    const handler = handlers.get('ai-session-state:event');
+    handler!({ type: 'session:waiting', sessionId: sid, workspacePath: WS });
+
+    expect(store.get(sessionHasPendingInteractivePromptAtom(sid))).toBe(false);
+    expect(store.get(sessionProcessingAtom(sid))).toBe(true);
+  });
+});
+
+// NIM-850: the "awaiting input" flag for claude-code-cli AskUserQuestion is now
+// owned by the explicit prompt-lifecycle broadcasts the MCP handler emits — set on
+// ask, cleared on settle (answer OR cancel) — instead of the coarse, never-cleared
+// pid `waiting` status. This locks the renderer contract those broadcasts rely on.
+describe('AskUserQuestion prompt lifecycle (NIM-850)', () => {
+  it('ai:askUserQuestion sets the pending flag; ai:askUserQuestionAnswered clears it', () => {
+    const sid = uniqueSessionId('auq');
+    const ask = handlers.get('ai:askUserQuestion');
+    const answered = handlers.get('ai:askUserQuestionAnswered');
+    expect(ask).toBeTypeOf('function');
+    expect(answered).toBeTypeOf('function');
+
+    ask!({ sessionId: sid, questionId: 'q1', questions: [] });
+    expect(store.get(sessionHasPendingInteractivePromptAtom(sid))).toBe(true);
+
+    answered!({ sessionId: sid, questionId: 'q1' });
+    expect(store.get(sessionHasPendingInteractivePromptAtom(sid))).toBe(false);
+  });
 });
 
 describe.each([

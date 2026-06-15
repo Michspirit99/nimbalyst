@@ -332,7 +332,20 @@ export function initSessionStateListeners(): () => void {
       // Session is waiting for user input (AskUserQuestion, ExitPlanMode, ToolPermission)
       case 'session:waiting':
         store.set(sessionProcessingAtom(sessionId), true);
-        store.set(sessionHasPendingInteractivePromptAtom(sessionId), true);
+        // NIM-850: the genuine Claude CLI (claude-code-cli) drives this event off
+        // a coarse `waiting` pid-file status that fires transiently mid-turn — e.g.
+        // while the CLI is merely blocked on a tool/MCP round-trip — not only for
+        // real user prompts. Letting it set the pending-interactive-prompt flag
+        // poisoned `isWaitingForResponse`, suppressing the "Thinking…" indicator
+        // for the rest of the turn (the flag is only cleared by terminal events;
+        // session:streaming deliberately doesn't clear it). For CLI sessions the
+        // flag is owned solely by the real durable-prompt events
+        // (ai:askUserQuestion / ai:exitPlanModeConfirm / ai:toolPermission /
+        // ai:requestUserInput), which set AND clear it explicitly. Keeping
+        // sessionProcessingAtom true above means the indicator keeps showing.
+        if (sessionMeta?.provider !== 'claude-code-cli') {
+          store.set(sessionHasPendingInteractivePromptAtom(sessionId), true);
+        }
         // Treat "waiting on user" as still processing for rail badge purposes —
         // the user typically hasn't switched away because of the prompt.
         store.set(markSessionStreamingAtom, { sessionId, workspacePath: resolvedWorkspacePath });
