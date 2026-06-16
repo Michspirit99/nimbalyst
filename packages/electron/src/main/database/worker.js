@@ -2357,6 +2357,34 @@ class PGLiteWorker {
       throw error;
     }
 
+    // Migration: materialized tracker type definitions (schema version 12).
+    // Makes the database the local source of truth for custom tracker schemas
+    // (previously only YAML files + the in-memory registry), so offline
+    // consumers like the `nim` CLI can resolve a custom type's role->field map.
+    // `model` is JSON TEXT (not JSONB) so it reads identically across backends.
+    // sync_id / sync_status mirror tracker_items for a future schema-sync path.
+    try {
+      await this.db.exec(`
+        CREATE TABLE IF NOT EXISTS tracker_type_defs (
+          id          TEXT PRIMARY KEY,
+          workspace   TEXT NOT NULL,
+          type        TEXT NOT NULL,
+          model       TEXT NOT NULL,
+          source      TEXT,
+          updated     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          deleted_at  TIMESTAMPTZ,
+          sync_id     BIGINT,
+          sync_status TEXT DEFAULT 'local'
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tracker_type_defs_ws_type
+          ON tracker_type_defs (workspace, type);
+      `);
+      console.log('[PGLite Worker] tracker_type_defs table created successfully');
+    } catch (error) {
+      console.error('[PGLite Worker] Failed to create tracker_type_defs table:', error);
+      throw error;
+    }
+
     // Migration: Ensure ai_tool_call_file_edits FK points to ai_agent_messages (not ai_transcript_events).
     // A previous buggy migration may have re-pointed it to ai_transcript_events.
     //

@@ -26,6 +26,7 @@ import { normalizeLegacyLabelValues } from '@nimbalyst/runtime/sync';
 import type { ElectronDocumentService } from '../../services/ElectronDocumentService';
 import { getTrackerImporterRegistry } from '../../services/tracker/TrackerImporterRegistry';
 import { getTrackerImportService } from '../../services/tracker/TrackerImportService';
+import { materializeTrackerTypeDef, removeTrackerTypeDef } from '../../services/tracker/trackerTypeDefStore';
 
 type McpToolResult = {
   content: Array<{ type: string; text?: string }>;
@@ -1258,6 +1259,10 @@ export async function handleTrackerDefineType(
       fileName: args?.fileName,
     });
 
+    // Mirror into the DB so offline consumers (the `nim` CLI) can resolve this
+    // type's role->field map without the YAML file. Best-effort.
+    await materializeTrackerTypeDef(workspacePath, model, 'cli');
+
     return {
       content: [
         {
@@ -1316,11 +1321,20 @@ export async function handleTrackerDeleteType(
 
     const { getDatabase } = await import("../../database/initialize");
     const db = getDatabase();
+    // type_tags membership differs by backend: TEXT[] (`= ANY`) on PGLite vs a
+    // JSON-string column on SQLite (no ANY()). Branch so delete-type works on
+    // both — previously this query threw "no such function: ANY" on SQLite and
+    // tracker_delete_type was entirely non-functional there.
+    const isSqlite =
+      typeof (db as any).getEngine === 'function' && (db as any).getEngine() === 'sqlite';
+    const tagMembership = isSqlite
+      ? `EXISTS (SELECT 1 FROM json_each(type_tags) WHERE value = $2)`
+      : `$2 = ANY(type_tags)`;
     const usage = await db.query<{ count: number | string }>(
       `SELECT COUNT(*)::int AS count
        FROM tracker_items
        WHERE workspace = $1
-         AND (type = $2 OR $2 = ANY(type_tags))`,
+         AND (type = $2 OR ${tagMembership})`,
       [workspacePath, args.type]
     );
     const count = Number(usage.rows[0]?.count ?? 0);
@@ -1350,6 +1364,9 @@ export async function handleTrackerDeleteType(
         isError: true,
       };
     }
+
+    // Tombstone the materialized definition so the CLI stops resolving it.
+    await removeTrackerTypeDef(workspacePath, args.type);
 
     return {
       content: [

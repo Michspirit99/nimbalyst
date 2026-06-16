@@ -96,6 +96,11 @@ export function getMigrations(schemaDir: string): Migration[] {
       name: 'project_file_sync_baseline',
       sqlFile: path.join(schemaDir, '0011_project_file_sync_baseline.sql'),
     },
+    {
+      version: 12,
+      name: 'tracker_type_defs',
+      sqlFile: path.join(schemaDir, '0012_tracker_type_defs.sql'),
+    },
   ];
 }
 

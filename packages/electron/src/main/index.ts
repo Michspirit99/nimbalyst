@@ -90,6 +90,7 @@ import { AIService } from './services/ai/AIService';
 import { detectFileWorkspace, suggestWorkspaceForFile, getAdditionalDirectoriesForWorkspace } from './utils/workspaceDetection';
 import { cliManager, initEnhancedPath, getEnhancedPath, getShellEnvironment } from './services/CLIManager';
 import { registerWorkspaceWindow, registerExtensionTools, shutdownHttpServer, startMcpHttpServer, updateDocumentState } from './mcp/httpServer';
+import { writeMcpEndpointDescriptor, removeMcpEndpointDescriptor, type EndpointWorkspace } from './mcp/mcpEndpointDescriptor';
 import { startSessionContextServer, cleanupSessionContextServer, shutdownSessionContextServer } from './mcp/sessionContextServer';
 import { startSettingsServer, shutdownSettingsServer } from './mcp/settingsServer';
 import { generateMcpAuthToken, getMcpAuthToken } from './mcp/mcpAuth';
@@ -858,6 +859,40 @@ async function handleDeepLink(url: string): Promise<void> {
     } catch (error) {
         logger.main.error('[DeepLink] Failed to handle deep link:', error);
     }
+}
+
+/**
+ * Snapshot the workspaces currently open across all windows, for the `nim` CLI
+ * endpoint descriptor. Best-effort and de-duplicated; falls back to recent
+ * workspaces if no windows are open yet.
+ */
+function collectOpenWorkspaces(): EndpointWorkspace[] {
+    const seen = new Set<string>();
+    const out: EndpointWorkspace[] = [];
+    try {
+        for (const state of windowStates.values()) {
+            const paths = new Set<string>();
+            const active = resolveActiveWorkspacePath(state);
+            if (active) paths.add(active);
+            if (state?.workspacePath) paths.add(state.workspacePath);
+            for (const p of state?.additionalWorkspacePaths ?? []) paths.add(p);
+            for (const p of paths) {
+                if (!p || seen.has(p)) continue;
+                seen.add(p);
+                out.push({ path: p, name: path.basename(p) });
+            }
+        }
+        if (out.length === 0) {
+            for (const item of getRecentItems('workspaces')) {
+                if (!item?.path || seen.has(item.path)) continue;
+                seen.add(item.path);
+                out.push({ path: item.path, name: (item as any).name ?? path.basename(item.path) });
+            }
+        }
+    } catch {
+        /* best-effort */
+    }
+    return out;
 }
 
 /**
@@ -2046,6 +2081,20 @@ app.whenReady().then(async () => {
         OpenCodeProvider.setMcpServerPort(result.port);
         CopilotCLIProvider.setMcpServerPort(result.port);
         ClaudeCliLauncherConfig.setMcpServerPort(result.port);
+
+        // Publish the loopback endpoint + per-launch token so the `nim`
+        // companion CLI can discover and talk to this running instance (live
+        // mode). The file is 0600 and removed on quit; the CLI checks pid
+        // liveness before trusting it. See mcpEndpointDescriptor.ts.
+        try {
+            writeMcpEndpointDescriptor({
+                port: result.port,
+                token: mcpAuthToken,
+                workspaces: collectOpenWorkspaces(),
+            });
+        } catch (descriptorError) {
+            logger.mcp.error('Failed to publish MCP endpoint descriptor:', descriptorError);
+        }
     } catch (error) {
             logger.mcp.error('Failed to start MCP SSE server:', error);
     }
@@ -2778,6 +2827,12 @@ app.on('before-quit', async (event) => {
         console.log(`[QUIT] [${t7}] MCP HTTP server shutdown complete (${t7-t6}ms)`);
 
         mcpHttpServer = null;
+
+        // Remove the nim CLI endpoint descriptor so a stale token/port can't be
+        // discovered after this instance exits.
+        try {
+            removeMcpEndpointDescriptor();
+        } catch (e) {}
 
         // Clean up MCP config service file watchers
         if (mcpConfigService && !mcpConfigServiceCleanedUp) {
