@@ -15,6 +15,7 @@ import {
 import crypto from 'crypto';
 import { getCurrentIdentity } from './TrackerIdentityService';
 import { applyCommentMutation, type CommentMutation } from './tracker/commentMutations';
+import { extractItemCustomFields } from './tracker/trackerRowCustomFields';
 import {
   getBacklinks as getRelationshipBacklinks,
   reindexItemRelationships,
@@ -1342,23 +1343,15 @@ export class ElectronDocumentService implements DocumentService {
       bodyVersion: row.body_version !== undefined && row.body_version !== null
         ? Number(row.body_version)
         : undefined,
-      // Pass through extra JSONB data fields (e.g. kanbanSortOrder) so they
-      // survive the TrackerItem -> TrackerRecord conversion via customFields.
-      customFields: (() => {
-        const known = new Set([
-          'title', 'description', 'status', 'priority', 'owner', 'tags',
-          'created', 'updated', 'dueDate', 'assigneeEmail', 'reporterEmail',
-          'authorIdentity', 'lastModifiedBy', 'createdByAgent', 'assigneeId',
-          'reporterId', 'labels', 'linkedSessions', 'linkedCommitSha', 'documentId',
-        ]);
-        const extra: Record<string, any> = {};
-        if (data) {
-          for (const [k, v] of Object.entries(data)) {
-            if (!known.has(k) && v !== undefined) extra[k] = v;
-          }
-        }
-        return Object.keys(extra).length > 0 ? extra : undefined;
-      })(),
+      // Pass through extra JSONB data fields (e.g. kanbanSortOrder) AND un-nest
+      // a nested `data.customFields` bag so custom schema columns (e.g. prUrl)
+      // survive the TrackerItem -> TrackerRecord conversion. See NIM-863.
+      customFields: extractItemCustomFields(data, new Set([
+        'title', 'description', 'status', 'priority', 'owner', 'tags',
+        'created', 'updated', 'dueDate', 'assigneeEmail', 'reporterEmail',
+        'authorIdentity', 'lastModifiedBy', 'createdByAgent', 'assigneeId',
+        'reporterId', 'labels', 'linkedSessions', 'linkedCommitSha', 'documentId',
+      ])),
     };
   }
 
@@ -3166,14 +3159,13 @@ export function setupDocumentServiceHandlers(resolver: DocumentServiceResolver) 
         linkedCommitSha: d.linkedCommitSha || undefined, documentId: d.documentId || undefined,
         syncStatus: r.sync_status || 'local',
       };
-      // Pass through extra JSONB data fields (activity, comments, etc.)
+      // Pass through extra JSONB data fields (activity, comments, etc.) AND
+      // un-nest a nested `data.customFields` bag so custom schema columns
+      // survive the TrackerItem -> TrackerRecord conversion. See NIM-863.
       // Uses the item's own keys as the "known" set -- no hardcoded list.
       const itemKeys = new Set(Object.keys(item));
-      const extra: Record<string, any> = {};
-      for (const [k, v] of Object.entries(d)) {
-        if (v !== undefined && !itemKeys.has(k)) extra[k] = v;
-      }
-      if (Object.keys(extra).length > 0) (item as any).customFields = extra;
+      const cf = extractItemCustomFields(d, itemKeys);
+      if (cf) (item as any).customFields = cf;
       event.sender.send('document-service:tracker-items-changed', {
         added: [], updated: [item], removed: [], timestamp: new Date(),
       });
