@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contextual tips now fill empty AI sessions immediately and on every empty session, instead of after a delay and only once per app launch.
 
 ### Fixed
+- The Claude Code context indicator now updates throughout a turn instead of only at the end, and no longer bounces when sub-agents run.
 - Personal docs sync no longer overwrites newer local edits (or an open editor's unsaved changes) with an older synced copy.
 - "Commit with AI" in a worktree now proposes all uncommitted changes in the worktree, not just the current session's edits.
 - Claude Code CLI sessions now show an install link when the Claude Code CLI isn't installed, instead of a cryptic terminal error.

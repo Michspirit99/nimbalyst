@@ -996,7 +996,22 @@ export class ClaudeCodeProvider extends BaseAgentProvider {
 
               case 'usage':
                 usageData = item.usage;
-                if (item.isPerStep) lastAssistantUsage = item.usage;
+                if (item.isPerStep) {
+                  lastAssistantUsage = item.usage;
+                  // Surface context fill live, per assistant step, so the UI's
+                  // context indicator updates throughout a long agentic turn
+                  // instead of only at the `result` chunk (turn end). This is a
+                  // mid-turn snapshot: contextFillTokens ONLY -- cumulative
+                  // input/output usage stays on the `complete` chunk to avoid
+                  // double-counting. See NIM-868.
+                  const stepContextTokens =
+                    (item.usage?.input_tokens || 0)
+                    + (item.usage?.cache_read_input_tokens || 0)
+                    + (item.usage?.cache_creation_input_tokens || 0);
+                  if (stepContextTokens > 0) {
+                    yield { type: 'context_usage', contextFillTokens: stepContextTokens };
+                  }
+                }
                 if (item.modelUsage) modelUsageData = item.modelUsage;
                 break;
 
