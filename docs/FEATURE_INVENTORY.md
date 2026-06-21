@@ -246,6 +246,7 @@ A concise reference of all features in the product. Keep this up to date as feat
 - Inline `#type` items in markdown (TrackerPlugin)
 - Tracker schema overrides in Trackers settings -- customize a built-in type into `.nimbalyst/trackers`, edit an existing override, reset back to the built-in default, and resync the local database mirror when schema files drift
 - External-source importers: import GitHub issues (extension-provided) into the tracker as native bug, task, or feature items with a back-link to the source, a "from GitHub" chip, re-snapshot ("pull latest from source") with conservative merge, and a Source filter; agent tools `tracker_importer_list` / `tracker_importer_search` / `tracker_import` / `tracker_resnapshot` / `tracker_get_by_urn`
+- Per-project "AI Agent Access" toggle in tracker settings -- allow or block AI agents from using tracker tools in that project (on by default)
 
 ## Shared Links
 

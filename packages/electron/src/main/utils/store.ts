@@ -456,6 +456,10 @@ export interface WorkspaceState {
     updatedAt: number;
   }>;
   trackerSyncPolicies?: Record<string, TrackerSyncModeSetting | TrackerSyncPolicySetting>;
+  // Per-project opt-out for agent tracker tools. When false, McpConfigService
+  // omits the `nimbalyst-trackers` MCP server so the agent gets no tracker_*
+  // tools in this project. Defaults to enabled (undefined === true).
+  trackersEnabled?: boolean;
   // Issue key prefix for tracker items (e.g., "NIM", "APP"). Used for local-only trackers.
   // For synced trackers, the prefix is stored server-side in TrackerRoom metadata.
   issueKeyPrefix?: string;
@@ -1741,6 +1745,19 @@ export function isSettingsAgentToolsDisabled(): boolean {
 
 export function setSettingsAgentToolsDisabled(disabled: boolean): void {
   getAppStore().set('settingsAgentToolsDisabled', disabled);
+}
+
+// Per-project agent tracker-tools opt-out. The `nimbalyst-trackers` MCP server
+// is on by default; flipping this off makes McpConfigService omit it for this
+// workspace so the agent gets no tracker_* tools. Default true (undefined).
+export function isTrackersAgentToolsEnabled(workspacePath: string): boolean {
+  return getWorkspaceState(workspacePath).trackersEnabled ?? true;
+}
+
+export function setTrackersAgentToolsEnabled(workspacePath: string, enabled: boolean): void {
+  updateWorkspaceState(workspacePath, (state) => {
+    state.trackersEnabled = enabled;
+  });
 }
 
 export function getExtensionConfiguration(extensionId: string): Record<string, unknown> {

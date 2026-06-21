@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Customize or reset a tracker type's schema from Settings, with a drift warning when the saved schema diverges from its files.
 - Edit and delete your own tracker comments.
 - Share individual plans (and other full-document trackers) with your team: the shared copy keeps its status, lifecycle, and body in sync — including changes made offline — and unsharing removes it for everyone, while unshared items stay private.
+- Control whether AI agents can use your trackers per project, with an "AI Agent Access" toggle in tracker settings.
 
 ### Changed
 - Contextual tips now fill empty AI sessions immediately and on every empty session, instead of after a delay and only once per app launch.

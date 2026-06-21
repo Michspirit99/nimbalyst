@@ -21,9 +21,11 @@ describe('ClaudeCliSessionLauncher', () => {
       opts.createClaudeCliTerminal ??
       vi.fn<CreateClaudeCliTerminal>(async (..._args: CreateClaudeCliTerminalArgs): Promise<void> => {});
     const getMcpServersConfig = vi.fn(async (_opts: { sessionId: string; workspacePath: string }) => ({
-      'nimbalyst-mcp': {
+      // The eager core `nimbalyst` server is what the launcher lifts the
+      // /permission host+token from (the legacy `nimbalyst-mcp` is retired).
+      'nimbalyst': {
         type: 'sse',
-        url: `http://127.0.0.1:5123/mcp?workspacePath=%2Fwork&sessionId=${_opts.sessionId}`,
+        url: `http://127.0.0.1:5123/mcp/core?workspacePath=%2Fwork&sessionId=${_opts.sessionId}`,
       },
     }));
 
@@ -63,7 +65,7 @@ describe('ClaudeCliSessionLauncher', () => {
 
     const parsed = JSON.parse(writes[0].data);
     expect(parsed).toHaveProperty('mcpServers');
-    expect(parsed.mcpServers['nimbalyst-mcp'].url).toContain('sessionId=sess-01HABC');
+    expect(parsed.mcpServers['nimbalyst'].url).toContain('sessionId=sess-01HABC');
   });
 
   it('spawns the CLI terminal with the temp mcp-config path and the session id', async () => {
@@ -115,11 +117,11 @@ describe('ClaudeCliSessionLauncher', () => {
     ]);
   });
 
-  it('registers the PreToolUse permission hook (--settings + env) when a hook script + nimbalyst-mcp are present — NIM-806 Phase 4', async () => {
+  it('registers the PreToolUse permission hook (--settings + env) when a hook script + the core server are present — NIM-806 Phase 4', async () => {
     const getMcpServersConfig = vi.fn(async (_opts: { sessionId: string; workspacePath: string }) => ({
-      'nimbalyst-mcp': {
+      'nimbalyst': {
         type: 'sse',
-        url: 'http://127.0.0.1:5123/mcp?sessionId=sess-01HABC',
+        url: 'http://127.0.0.1:5123/mcp/core?sessionId=sess-01HABC',
         headers: { Authorization: 'Bearer secret-token-xyz' },
       },
     }));
@@ -164,9 +166,9 @@ describe('ClaudeCliSessionLauncher', () => {
   // PreToolUse hook (the hook would otherwise still prompt for Bash/Edit/Write).
   function makeHookHarness(getPermissionMode?: (workspacePath: string) => 'ask' | 'allow-all' | 'bypass-all' | null) {
     const getMcpServersConfig = vi.fn(async (_opts: { sessionId: string; workspacePath: string }) => ({
-      'nimbalyst-mcp': {
+      'nimbalyst': {
         type: 'sse',
-        url: 'http://127.0.0.1:5123/mcp?sessionId=sess-01HABC',
+        url: 'http://127.0.0.1:5123/mcp/core?sessionId=sess-01HABC',
         headers: { Authorization: 'Bearer secret-token-xyz' },
       },
     }));
@@ -229,7 +231,7 @@ describe('ClaudeCliSessionLauncher', () => {
     const createClaudeCliTerminal = vi.fn(async (..._args: CreateClaudeCliTerminalArgs): Promise<void> => {});
     const launcher = new ClaudeCliSessionLauncher({
       getMcpServersConfig: vi.fn(async (_opts: { sessionId: string; workspacePath: string }) => ({
-        'nimbalyst-mcp': { type: 'sse', url: 'http://127.0.0.1:5123/mcp' },
+        'nimbalyst': { type: 'sse', url: 'http://127.0.0.1:5123/mcp/core' },
       })),
       resolveClaudeExecutable: () => '/usr/local/bin/claude',
       getEnhancedPath: () => '/opt/bin:/usr/bin',

@@ -2,7 +2,7 @@ import path from 'path';
 import { BrowserWindow } from 'electron';
 import { randomUUID } from 'crypto';
 import { safeHandle } from '../utils/ipcRegistry';
-import { ClaudeCodeProvider, OpenAICodexProvider, OpenAICodexACPProvider, SessionManager } from '@nimbalyst/runtime/ai/server';
+import { SessionManager } from '@nimbalyst/runtime/ai/server';
 import type { AIProviderType } from '@nimbalyst/runtime/ai/server/types';
 import { ModelIdentifier } from '@nimbalyst/runtime/ai/server/types';
 import { AISessionsRepository, AgentMessagesRepository, SessionFilesRepository } from '@nimbalyst/runtime';
@@ -15,14 +15,9 @@ import { database as databaseWorker } from '../database/PGLiteDatabaseWorker';
 import { getDatabase } from '../database/initialize';
 import { gitRefWatcher } from '../file/GitRefWatcher';
 import { AIService } from './ai/AIService';
-import {
-  startMetaAgentServer,
-  setMetaAgentToolFns,
-  shutdownMetaAgentServer,
-} from '../mcp/metaAgentServer';
+import { setMetaAgentToolFns } from '../mcp/metaAgentServer';
 import { computeNotificationSignature } from './metaAgentNotificationSignature';
 import { extractMessageText, extractUserPrompts } from './metaAgentMessageText';
-import { ClaudeCliLauncherConfig } from './ai/claudeCliLauncherSingleton';
 
 type SessionStatusValue = 'idle' | 'running' | 'waiting_for_input' | 'error' | 'interrupted';
 type PromptType = 'permission_request' | 'ask_user_question_request' | 'exit_plan_mode_request';
@@ -194,14 +189,10 @@ export class MetaAgentService {
           this.listSpawnedSessionsJson(metaSessionId, workspaceId),
       });
 
-      const result = await startMetaAgentServer();
-      this.serverPort = result.port;
-      console.log(`[MetaAgentService] MCP server started on port ${result.port}`);
-
-      ClaudeCodeProvider.setMetaAgentServerPort(result.port);
-      OpenAICodexProvider.setMetaAgentServerPort(result.port);
-      OpenAICodexACPProvider.setMetaAgentServerPort(result.port);
-      ClaudeCliLauncherConfig.setMetaAgentServerPort(result.port);
+      // MCP consolidation Phase 7: meta-agent tools are served by the unified
+      // server's `/mcp/host` endpoint via `dispatchMetaAgentTool`, which uses the
+      // toolFns injected above. This service no longer starts a standalone HTTP
+      // server.
 
       this.unsubscribeStateListener = getSessionStateManager().subscribe((event) => {
         // NIM-6 follow-up: dedup signatures only describe one turn; clear them
@@ -236,11 +227,8 @@ export class MetaAgentService {
     this.unsubscribeStateListener?.();
     this.unsubscribeStateListener = null;
     this.notificationSignatures.clear();
-    await shutdownMetaAgentServer();
-    ClaudeCodeProvider.setMetaAgentServerPort(null);
-    OpenAICodexProvider.setMetaAgentServerPort(null);
-    OpenAICodexACPProvider.setMetaAgentServerPort(null);
-    ClaudeCliLauncherConfig.setMetaAgentServerPort(null);
+    // No standalone HTTP server to tear down (Phase 7); the injected toolFns are
+    // process-lifetime singletons.
     this.serverPort = null;
     this.started = false;
   }

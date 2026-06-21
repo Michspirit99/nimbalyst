@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenCodeProvider } from '../OpenCodeProvider';
+import { configureMcpServers } from '../../services/mcpServerConfig';
 import { EventEmitter } from 'events';
 
 // Mock child_process.spawn to avoid actually launching opencode
@@ -76,12 +77,8 @@ describe('OpenCodeProvider', () => {
     vi.clearAllMocks();
     mockFetch.mockResolvedValue({ ok: true });
 
-    // Reset static ports
-    OpenCodeProvider.setMcpServerPort(null);
-    OpenCodeProvider.setSessionNamingServerPort(null);
-    OpenCodeProvider.setExtensionDevServerPort(null);
-    OpenCodeProvider.setSuperLoopProgressServerPort(null);
-    OpenCodeProvider.setSessionContextServerPort(null);
+    // Reset shared MCP config + provider loader
+    configureMcpServers({ mcpServerPort: null, extensionDevServerPort: null });
     OpenCodeProvider.setMcpConfigLoader(null);
     OpenCodeProvider.setShellEnvironmentLoader(null);
     OpenCodeProvider.setEnhancedPathLoader(null);
