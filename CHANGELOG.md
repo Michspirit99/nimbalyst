@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+<<<<<<< feature/custom-completion-sounds
+- Custom completion sounds — pick your own audio file (MP3, WAV, OGG, M4A, AAC, FLAC) to play when an agent finishes a turn.
+=======
 <!-- New features go here -->
 - iOS: create a Meta Agent from the session create menu (alpha-gated to mirror the desktop `meta-agent` feature flag, synced to mobile).
 - New Gemini (Antigravity) marketplace extension, usable as an AI chat and meta-agent provider, with a usage indicator chip. (#558)
@@ -70,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+>>>>>>> main
 
 ### Changed
 <!-- Changes to existing functionality go here -->
