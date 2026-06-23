@@ -1,6 +1,6 @@
 {
   "name": "@nimbalyst/electron",
-  "version": "0.66.0",
+  "version": "0.66.1",
   "private": true,
   "license": "MIT",
   "author": "Nimbalyst Team",
@@ -161,7 +161,7 @@
   "build": {
     "appId": "com.nimbalyst.electron",
     "productName": "Nimbalyst",
-    "electronVersion": "41.0.4",
+    "electronVersion": "41.8.0",
     "nodeGypRebuild": false,
     "buildDependenciesFromSource": false,
     "npmRebuild": true,

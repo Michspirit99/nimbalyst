@@ -20,6 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 <!-- Removed features go here -->
 
+## [0.66.1] - 2026-06-22
+
+
+### Added
+<!-- New features go here -->
+
+### Changed
+- Updated the bundled Electron runtime to 41.8.0 (security fixes).
+
+### Fixed
+<!-- Bug fixes go here -->
+
+### Removed
+<!-- Removed features go here -->
+
 ## [0.66.0] - 2026-06-22
 
 
