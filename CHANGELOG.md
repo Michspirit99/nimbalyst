@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reopened secondary projects now scope the tracker list to the correct project instead of the startup project's items.
 - Fixed tracker field corruption on the SQLite backend caused by merging JSON updates.
 - Shared documents no longer get stuck on a blank "Offline – unsynced changes" editor when a session token was scoped to the wrong org.
+- Committing no longer triggers a burst of slow database queries that briefly hitched the app.
 
 ### Removed
 <!-- Removed features go here -->
