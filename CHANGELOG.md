@@ -10,13 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Start a new coding session by voice — say "create a new session" on desktop or mobile.
-- Voice mode on mobile can now find sessions by topic, switch sessions, summarize a session, and send coding tasks to your desktop.
+- Voice mode on mobile can now find sessions by topic, switch sessions, summarize a session (including the agent's latest notes and any question it's waiting on), answer a session's pending question by voice, and send coding tasks to your desktop.
 - Choose the voice model and reasoning level in Voice Mode settings.
 
 ### Changed
 <!-- Changes to existing functionality go here -->
 
 ### Fixed
+- Mobile voice mode now shows clear Pause and Cancel buttons by the floating mic, so a single tap reliably pauses or stops voice mode.
 - Another session can now read an OpenAI Codex session's last reply through the session-summary tools, matching Claude Code sessions.
 - Voice mode now always speaks in your configured preferred language, including on mobile, instead of sometimes starting up in a different language.
 - The iOS voice agent now reliably speaks its response when it wakes up after a coding agent finishes a task.

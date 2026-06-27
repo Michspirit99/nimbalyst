@@ -42,6 +42,11 @@ vi.mock('../sessionSummary', () => ({
   getSessionSummaryForVoice: (...a: any[]) => getSessionSummaryForVoice(...a),
 }));
 
+const answerSessionPromptForVoice = vi.fn();
+vi.mock('../answerPrompt', () => ({
+  answerSessionPromptForVoice: (...a: any[]) => answerSessionPromptForVoice(...a),
+}));
+
 import { handleMobileVoiceToolCall } from '../mobileVoiceToolHandler';
 
 const memoryTool = {
@@ -57,6 +62,7 @@ beforeEach(() => {
   getVoiceEnabledBackendToolsForWorkspace.mockResolvedValue([memoryTool]);
   searchSessionsForVoice.mockResolvedValue({ success: true, sessions: [] });
   getSessionSummaryForVoice.mockResolvedValue({ success: true, summary: 'A summary' });
+  answerSessionPromptForVoice.mockResolvedValue({ success: true, message: 'Answered.' });
 });
 
 describe('handleMobileVoiceToolCall', () => {
@@ -111,6 +117,28 @@ describe('handleMobileVoiceToolCall', () => {
     expect(out.success).toBe(false);
     expect(out.error).toMatch(/session_id is required/i);
     expect(getSessionSummaryForVoice).not.toHaveBeenCalled();
+  });
+
+  it('routes the built-in answer_prompt to the shared answerer', async () => {
+    answerSessionPromptForVoice.mockResolvedValue({ success: true, message: 'Answered "Theme" with "Dark".' });
+
+    const out = await handleMobileVoiceToolCall(
+      'answer_prompt',
+      '{"session_id":"s1","answer":"dark"}',
+      '/ws',
+    );
+
+    expect(answerSessionPromptForVoice).toHaveBeenCalledWith('/ws', 's1', 'dark');
+    expect(handleBackendTool).not.toHaveBeenCalled();
+    expect(out.success).toBe(true);
+    expect(out.result).toMatch(/Dark/);
+  });
+
+  it('requires an answer for answer_prompt', async () => {
+    const out = await handleMobileVoiceToolCall('answer_prompt', '{"session_id":"s1"}', '/ws');
+    expect(out.success).toBe(false);
+    expect(out.error).toMatch(/answer is required/i);
+    expect(answerSessionPromptForVoice).not.toHaveBeenCalled();
   });
 
   it('rejects a tool that is not a registered voice tool (security gate)', async () => {

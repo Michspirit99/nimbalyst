@@ -24,6 +24,7 @@ import { handleExtensionTool } from '../../mcp/tools/extensionToolHandler';
 import { handleBackendTool, isBackendTool } from '../../mcp/tools/backendToolHandler';
 import { searchSessionsForVoice } from './sessionSearch';
 import { getSessionSummaryForVoice } from './sessionSummary';
+import { answerSessionPromptForVoice } from './answerPrompt';
 
 export interface MobileVoiceToolResult {
   success: boolean;
@@ -81,6 +82,25 @@ export async function handleMobileVoiceToolCall(
       return { success: false, error: result.error || 'Could not summarize session' };
     }
     return { success: true, result: result.summary ?? '' };
+  }
+
+  // Built-in: answer a session's pending interactive prompt (question /
+  // permission / commit). Routes through the same resolution path mobile uses
+  // for an in-app answer, so the blocked session resumes. Read+resolve only.
+  if (toolName === 'answer_prompt') {
+    const sessionId = typeof args.session_id === 'string' ? args.session_id : '';
+    const answer = typeof args.answer === 'string' ? args.answer : '';
+    if (!sessionId) {
+      return { success: false, error: 'session_id is required' };
+    }
+    if (!answer.trim()) {
+      return { success: false, error: 'answer is required' };
+    }
+    const result = await answerSessionPromptForVoice(workspacePath, sessionId, answer);
+    if (!result.success) {
+      return { success: false, error: result.error || 'Could not answer the prompt' };
+    }
+    return { success: true, result: result.message ?? 'Answer submitted.' };
   }
 
   // Resolve the realtime-safe name to a registered voiceAgent tool. Building the

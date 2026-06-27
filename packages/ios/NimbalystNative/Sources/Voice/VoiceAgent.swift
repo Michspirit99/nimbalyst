@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import os
+import UIKit
 
 /// Core voice mode orchestrator. Manages the OpenAI Realtime API connection,
 /// audio pipeline, tool dispatch, and state machine for voice interactions.
@@ -242,6 +243,11 @@ public final class VoiceAgent: ObservableObject {
                 try self.audioPipeline.startCapture()
                 self.state = .listening
                 self.resetIdleTimer()
+                // Cue the user that the session is connected and it's their turn
+                // to talk: a soft chime plus a gentle haptic. Fires only here, on
+                // a fresh session connect -- not on idle-resume or barge-in.
+                self.audioPipeline.playReadyChime()
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
             } catch {
                 self.logger.error("Failed to start capture: \(error.localizedDescription)")
                 self.deactivate()
@@ -350,6 +356,8 @@ public final class VoiceAgent: ObservableObject {
             handleSwitchSession(args: args, callId: callId)
         case "get_session_summary":
             handleGetSessionSummary(args: args, callId: callId)
+        case "answer_prompt":
+            handleAnswerPrompt(args: args, callId: callId)
         case "stop_voice_session":
             handleStopVoiceSession(callId: callId)
         case "ask_coding_agent":
@@ -569,17 +577,13 @@ public final class VoiceAgent: ObservableObject {
             return
         }
 
-        // Local DB first (fast, offline-capable).
-        if let database, let session = try? database.session(byId: sessionId) {
-            sendLocalSessionSummary(session: session, sessionId: sessionId, callId: callId)
-            return
-        }
-
-        // Not stored on this device -- e.g. a session surfaced by the
-        // desktop-backed semantic list_sessions that never synced here. Proxy to
-        // the desktop, which can summarize any session in the workspace.
+        // Prefer the desktop summary when connected: only the desktop's canonical
+        // transcript carries pending interactive prompts (questions/permissions
+        // the session is blocked on) and the full final agent message. The local
+        // GRDB rows can't represent those, so a local-only summary would hide the
+        // very thing the user started the voice agent to handle. Fall back to the
+        // local DB summary when the desktop is unreachable (offline-capable).
         if let syncManager, let projectId = resolveProjectId() {
-            logger.info("get_session_summary: \(sessionId) not local, proxying to desktop")
             let argsJson = Self.encodeArgs(["session_id": sessionId])
             Task { @MainActor in
                 let outcome = await syncManager.callVoiceTool(
@@ -590,14 +594,25 @@ public final class VoiceAgent: ObservableObject {
                 if outcome.success, let result = outcome.result, !result.isEmpty {
                     let payload: [String: Any] = ["success": true, "summary": result]
                     self.realtimeClient?.sendFunctionCallResult(callId: callId, output: Self.encodeArgs(payload))
+                    return
+                }
+                // Desktop unreachable or workspace not open -- fall back to local.
+                self.logger.info("get_session_summary: desktop summary unavailable for \(sessionId) (\(outcome.error ?? "no result")), trying local DB")
+                if let database, let session = try? database.session(byId: sessionId) {
+                    self.sendLocalSessionSummary(session: session, sessionId: sessionId, callId: callId)
                 } else {
-                    self.logger.error("get_session_summary: desktop summary failed for \(sessionId): \(outcome.error ?? "no result")")
                     self.realtimeClient?.sendFunctionCallResult(
                         callId: callId,
                         output: "{\"success\":false,\"error\":\"Could not get the session summary\"}"
                     )
                 }
             }
+            return
+        }
+
+        // No desktop connection: best-effort local summary (no pending prompts).
+        if let database, let session = try? database.session(byId: sessionId) {
+            sendLocalSessionSummary(session: session, sessionId: sessionId, callId: callId)
             return
         }
 
@@ -612,7 +627,13 @@ public final class VoiceAgent: ObservableObject {
     private func sendLocalSessionSummary(session: Session, sessionId: String, callId: String) {
         do {
             let messages = (try? database?.messages(forSession: sessionId)) ?? []
-            let lastAssistantMessage = messages.last { $0.source == "assistant" }
+            // The last agent message holds the final notes/instructions, so it
+            // must always be surfaced. Skip trailing assistant turns that ended
+            // on tool calls (empty content) and pick the last one with text.
+            let lastAgentMessage = messages.last {
+                $0.source == "assistant"
+                    && !($0.contentDecrypted?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            }
 
             var summary: [String: Any] = [
                 "success": true,
@@ -623,8 +644,8 @@ public final class VoiceAgent: ObservableObject {
                 "messageCount": messages.count,
                 "lastActivity": RelativeTimestamp.format(epochMs: session.updatedAt),
             ]
-            if let lastMsg = lastAssistantMessage?.contentDecrypted {
-                summary["lastAssistantMessage"] = String(lastMsg.prefix(500))
+            if let lastMsg = lastAgentMessage?.contentDecrypted {
+                summary["lastAssistantMessage"] = String(lastMsg.prefix(1500))
             }
 
             let resultData = try JSONSerialization.data(withJSONObject: summary)
@@ -634,6 +655,54 @@ public final class VoiceAgent: ObservableObject {
                 callId: callId,
                 output: "{\"success\":false,\"error\":\"Failed to get session summary\"}"
             )
+        }
+    }
+
+    /// Answer a session's pending interactive prompt (question / permission /
+    /// commit). Always proxied to the desktop: the prompt's awaiting promise
+    /// lives in the desktop process, and only the desktop's canonical transcript
+    /// knows which prompt is pending and how to map the spoken answer onto it.
+    private func handleAnswerPrompt(args: [String: Any], callId: String) {
+        let sessionId = (args["session_id"] as? String) ?? activeSessionId
+        let answer = (args["answer"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard let sessionId else {
+            realtimeClient?.sendFunctionCallResult(
+                callId: callId,
+                output: "{\"success\":false,\"error\":\"No session specified\"}"
+            )
+            return
+        }
+        guard !answer.isEmpty else {
+            realtimeClient?.sendFunctionCallResult(
+                callId: callId,
+                output: "{\"success\":false,\"error\":\"No answer provided\"}"
+            )
+            return
+        }
+        guard let syncManager, let projectId = resolveProjectId() else {
+            realtimeClient?.sendFunctionCallResult(
+                callId: callId,
+                output: "{\"success\":false,\"error\":\"The desktop must be connected to answer a question\"}"
+            )
+            return
+        }
+
+        let argsJson = Self.encodeArgs(["session_id": sessionId, "answer": answer])
+        Task { @MainActor in
+            let outcome = await syncManager.callVoiceTool(
+                toolName: "answer_prompt",
+                argsJson: argsJson,
+                projectId: projectId
+            )
+            if outcome.success, let result = outcome.result, !result.isEmpty {
+                let payload: [String: Any] = ["success": true, "message": result]
+                self.realtimeClient?.sendFunctionCallResult(callId: callId, output: Self.encodeArgs(payload))
+            } else {
+                self.logger.error("answer_prompt: desktop failed for \(sessionId): \(outcome.error ?? "no result")")
+                let payload: [String: Any] = ["success": false, "error": outcome.error ?? "Could not answer the question"]
+                self.realtimeClient?.sendFunctionCallResult(callId: callId, output: Self.encodeArgs(payload))
+            }
         }
     }
 
@@ -822,7 +891,8 @@ public final class VoiceAgent: ObservableObject {
         - create_session: Start a brand new coding session on the desktop
         - list_sessions: List this project's sessions (read from this device)
         - switch_session: Focus a specific session for subsequent prompts
-        - get_session_summary: Summarize a session (read from this device)
+        - get_session_summary: Summarize a session (read from this device); also reports any question the session is waiting on
+        - answer_prompt: Answer a question / approval the session is waiting on
         - ask_coding_agent: Ask the coding agent a question
         - search_project_knowledge: Look up project docs/plans/decisions in the desktop's project memory (fast)
         - recall: Recall saved project facts relevant to a query
@@ -830,6 +900,8 @@ public final class VoiceAgent: ObservableObject {
         - stop_voice_session: End the conversation
 
         For anything about sessions themselves (what sessions exist, whether a session was just created, a session's status or summary), use list_sessions / get_session_summary -- they read directly from this device. NEVER ask the coding agent to check whether a session exists or was created.
+
+        If get_session_summary reports the session is waiting for the user's input, read the question aloud. When the user answers, call answer_prompt with their answer (do NOT route it through ask_coding_agent).
 
         For questions about this project (how it works, what was decided, what's in flight), prefer search_project_knowledge or recall first -- they answer quickly from the desktop's memory. Fall back to ask_coding_agent only when memory returns nothing. Memory tools require the desktop to be connected; if one reports it's unavailable, say so briefly.
 
@@ -927,6 +999,25 @@ public final class VoiceAgent: ObservableObject {
                         ],
                     ],
                     "required": [] as [String],
+                ] as [String: Any],
+            ],
+            [
+                "type": "function",
+                "name": "answer_prompt",
+                "description": "Answer a question or approval the session is waiting on (an interactive prompt surfaced by get_session_summary as 'waiting for your input'). Use this when the user gives an answer to that pending question, or approves/denies a permission or commit request. Requires the desktop to be connected.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "session_id": [
+                            "type": "string",
+                            "description": "Optional opaque session id (the `id` field from list_sessions). Omit to answer the session the user is viewing.",
+                        ],
+                        "answer": [
+                            "type": "string",
+                            "description": "The user's answer in their own words (e.g. the chosen option, or yes/no for a permission or commit request).",
+                        ],
+                    ],
+                    "required": ["answer"],
                 ] as [String: Any],
             ],
             [

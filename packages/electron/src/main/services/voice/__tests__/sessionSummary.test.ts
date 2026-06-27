@@ -55,6 +55,76 @@ describe('getSessionSummaryForVoice', () => {
     expect(out.summary).toContain('Design real-time collaborative trackers');
   });
 
+  it('always surfaces the most recent agent message, even when the final turn ended on tool calls', async () => {
+    const notes = 'IMPORTANT: run the migration before deploying. ' + 'x'.repeat(600);
+    const session = {
+      title: 'Migration work',
+      createdAt: Date.now() - 60000,
+      messages: [
+        { type: 'user_message', text: 'do the migration' },
+        { type: 'assistant_message', text: notes },
+        // Final assistant turn carries no prose (tool-only) -- must not shadow
+        // the real notes above.
+        { type: 'assistant_message', text: '' },
+      ],
+    };
+    findWindowByWorkspace.mockReturnValue(makeWindow({ 'sess-1': session }));
+
+    const out = await getSessionSummaryForVoice(WS, 'sess-1');
+
+    expect(out.success).toBe(true);
+    expect(out.summary).toContain('Most recent agent message:');
+    // Not lost to the 400-char conversation-tail truncation.
+    expect(out.summary).toContain('run the migration before deploying');
+    expect(out.details?.lastAgentMessage).toContain('IMPORTANT');
+    expect((out.details?.lastAgentMessage ?? '').length).toBeGreaterThan(400);
+  });
+
+  it('surfaces a pending question the session is waiting on', async () => {
+    const session = {
+      title: 'Awaiting answer',
+      createdAt: Date.now() - 60000,
+      messages: [
+        { type: 'user_message', text: 'add dark mode' },
+        {
+          type: 'interactive_prompt',
+          interactivePrompt: {
+            promptType: 'ask_user_question',
+            status: 'pending',
+            questions: [
+              {
+                question: 'Which theme should be the default?',
+                header: 'Theme',
+                options: [{ label: 'Dark' }, { label: 'Light' }],
+              },
+            ],
+          },
+        },
+        // A separate prompt that was already answered must not be surfaced.
+        {
+          type: 'interactive_prompt',
+          interactivePrompt: {
+            promptType: 'permission_request',
+            status: 'resolved',
+            toolName: 'Bash',
+            rawCommand: 'rm -rf build',
+          },
+        },
+      ],
+    };
+    findWindowByWorkspace.mockReturnValue(makeWindow({ 'sess-1': session }));
+
+    const out = await getSessionSummaryForVoice(WS, 'sess-1');
+
+    expect(out.success).toBe(true);
+    expect(out.summary).toContain('waiting for your input');
+    expect(out.summary).toContain('Which theme should be the default?');
+    expect(out.summary).toContain('options: Dark, Light');
+    expect(out.details?.pendingPrompts).toHaveLength(1);
+    // The resolved permission prompt is excluded.
+    expect(out.summary).not.toContain('rm -rf build');
+  });
+
   it('falls back to resolving a session TITLE the voice model passed as session_id', async () => {
     // loadSession only knows the real id; the title is not a valid id.
     findWindowByWorkspace.mockReturnValue(makeWindow({ 'sess-1': SESSION }));
