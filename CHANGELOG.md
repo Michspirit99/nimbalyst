@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Toggling an extension on/off via an AI agent now actually restarts its backend module, and importer crash errors now include the real failure reason instead of just "crashed".
-- Git worktrees with branch-style names (e.g. `feature/x`) and project subfolders now inherit the parent project's agent permissions instead of re-prompting for every tool call.
+- Git worktrees with branch-style names (e.g. `feature/x`) and a project's own subfolders now inherit the parent project's agent permissions instead of re-prompting for every tool call, while a separate repository nested inside a trusted folder still prompts on its own.
 - On Windows, clicking a file link in chat now opens the file instead of a blank window.
 - Claude Code background sub-agents are no longer killed when the lead agent's turn ends; the agent keeps waiting for them and is told if one is interrupted.
 - Tracker status changes now work for custom tracker types that rename their workflow status field.
