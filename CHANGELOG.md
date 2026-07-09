@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 <!-- Bug fixes go here -->
 - Bundled Codex runtime updated to 0.142.5 so the Codex Chrome plugin can start in Nimbalyst with the current Codex plugin protocol.
+- Editing a markdown file with em dashes or curly quotes no longer corrupts the text into `â` symbols or traps it in a reload loop.
 
 ### Removed
 <!-- Removed features go here -->
