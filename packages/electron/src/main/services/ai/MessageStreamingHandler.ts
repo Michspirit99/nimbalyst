@@ -509,6 +509,10 @@ export class MessageStreamingHandler {
             // LMStudio doesn't need an API key, just the base URL
             apiKey = 'not-required'; // Dummy value since LMStudio doesn't need a key
             break;
+          case 'synthetic':
+            // Synthetic.new requires an API key
+            errorMessage = 'Synthetic.new API key not configured';
+            break;
           default:
             throw new Error(`Unknown provider: ${session.provider}`);
         }
@@ -716,7 +720,11 @@ export class MessageStreamingHandler {
           ? 'not-required'
           : this.svc.getApiKeyForProvider(session.provider, effectiveWorkspacePath);
         if (!apiKey && session.provider !== 'lmstudio') {
-          throw new Error(session.provider === 'openai' ? 'OpenAI API key not configured' : 'Anthropic API key not configured');
+          throw new Error(
+            session.provider === 'openai' ? 'OpenAI API key not configured'
+            : session.provider === 'synthetic' ? 'Synthetic.new API key not configured'
+            : 'Anthropic API key not configured'
+          );
         }
 
         const refreshedConfig: ProviderConfig = {

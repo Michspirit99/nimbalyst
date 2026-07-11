@@ -30,6 +30,7 @@ These providers still use `BaseAIProvider`, not `BaseAgentProvider`.
 | `claude` | Claude Chat | Direct Anthropic SDK | Standard chat provider with tool calling but no MCP/file-agent loop. |
 | `openai` | OpenAI | Direct OpenAI SDK | Standard chat/completions path. |
 | `lmstudio` | LM Studio | Local OpenAI-compatible endpoint | Local-only chat provider. |
+| `synthetic` | Synthetic.new | Remote OpenAI-compatible endpoint | Hosted inference for open-weight models (Llama, Qwen, DeepSeek, Kimi, GLM, etc.). Requires an API key from synthetic.new. Dynamic model discovery via `/openai/v1/models`. |
 
 ## What Makes An Agent Provider Different
 

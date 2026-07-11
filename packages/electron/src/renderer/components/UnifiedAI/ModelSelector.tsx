@@ -128,6 +128,7 @@ export function ModelSelector({
       case 'opencode':
       case 'copilot-cli':
       case 'lmstudio':
+      case 'synthetic':
         return provider;
       case 'openai-codex-acp':
         // Settings still live under the OpenAI Codex panel.
@@ -182,6 +183,7 @@ export function ModelSelector({
       case 'opencode': return 'OpenCode';
       case 'copilot-cli': return 'GitHub Copilot';
       case 'lmstudio': return 'LMStudio';
+      case 'synthetic': return 'Synthetic.new';
       default: {
         // Extension-contributed providers carry their contribution id here
         // (e.g. "antigravity-gemini-agent"). Prettify it for the group header

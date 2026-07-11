@@ -248,8 +248,9 @@ function addFileToSet(filePath: string, cwd: string, files: Set<string>): void {
   if (/[\[\]{}()<>:;,!@#%^&*?|=+`"']/.test(filePath)) return;
 
   try {
-    const absPath = path.resolve(cwd, filePath);
-    if (absPath.startsWith(cwd)) {
+    const normalizedCwd = path.resolve(cwd);
+    const absPath = path.resolve(normalizedCwd, filePath);
+    if (absPath === normalizedCwd || absPath.startsWith(normalizedCwd + path.sep)) {
       files.add(absPath);
     }
   } catch {

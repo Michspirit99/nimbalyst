@@ -83,6 +83,8 @@ export function collectSpawnCrashDiagnostics(ctx: SpawnCrashContext): Record<str
       diag.openFilesLimit = limits.open_files ?? null;
       diag.maxUserProcesses = limits.max_user_processes ?? null;
       diag.stackSizeBytes = limits.stack_size_bytes ?? null;
+    } else {
+      diag.userLimits = 'unavailable';
     }
   } catch {
     diag.userLimits = 'unavailable';

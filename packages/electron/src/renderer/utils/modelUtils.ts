@@ -162,6 +162,7 @@ export function getProviderDisplayName(provider: string): string {
     case 'claude-code-cli': return 'Claude Code CLI';
     case 'openai': return 'OpenAI';
     case 'lmstudio': return 'LMStudio';
+    case 'synthetic': return 'Synthetic.new';
     case 'copilot-cli': return 'GitHub Copilot';
     default: return provider;
   }
@@ -177,6 +178,7 @@ export function getProviderLabel(provider: string): string {
     case 'claude-code-cli': return 'CLI';
     case 'openai': return 'GPT';
     case 'lmstudio': return 'LOCAL';
+    case 'synthetic': return 'SYN';
     default: return provider.toUpperCase();
   }
 }

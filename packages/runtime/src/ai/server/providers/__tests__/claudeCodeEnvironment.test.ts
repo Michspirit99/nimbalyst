@@ -13,13 +13,20 @@ vi.mock('electron', () => ({
 
 describe('claudeCodeEnvironment', () => {
   const originalNodePath = process.env.NODE_PATH;
+  const customModulesPath = path.resolve('/custom/modules');
+  const repoRootPath = path.resolve('/repo');
+  const electronAppPath = path.join(repoRootPath, 'packages', 'electron');
+  const runtimeNodeModulesPath = path.join(repoRootPath, 'packages', 'runtime', 'node_modules');
+  const repoNodeModulesPath = path.join(repoRootPath, 'node_modules');
+  const packagedAppPath = path.resolve('/Applications/Nimbalyst.app/Contents/Resources/app.asar');
+  const packagedNodeModulesPath = path.resolve('/Applications/Nimbalyst.app/Contents/Resources/app.asar.unpacked/node_modules');
 
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
     mockApp.isPackaged = false;
-    mockApp.getAppPath.mockReturnValue('/repo/packages/electron');
-    process.env.NODE_PATH = '/custom/modules';
+    mockApp.getAppPath.mockReturnValue(electronAppPath);
+    process.env.NODE_PATH = customModulesPath;
   });
 
   afterEach(() => {
@@ -33,10 +40,10 @@ describe('claudeCodeEnvironment', () => {
   it('adds hoisted workspace node_modules paths in development mode', async () => {
     vi.spyOn(fs, 'existsSync').mockImplementation((candidate) => {
       return [
-        '/custom/modules',
-        '/repo/node_modules',
-        '/repo/packages/runtime/node_modules',
-      ].includes(String(candidate));
+        customModulesPath,
+        repoNodeModulesPath,
+        runtimeNodeModulesPath,
+      ].includes(path.normalize(String(candidate)));
     });
 
     const { setupClaudeCodeEnvironment } = await import('../../../../electron/claudeCodeEnvironment');
@@ -44,23 +51,23 @@ describe('claudeCodeEnvironment', () => {
     const nodePaths = env.NODE_PATH?.split(path.delimiter) ?? [];
 
     expect(nodePaths).toEqual([
-      '/custom/modules',
-      '/repo/node_modules',
-      '/repo/packages/runtime/node_modules',
+      customModulesPath,
+      repoNodeModulesPath,
+      runtimeNodeModulesPath,
     ]);
   });
 
   it('uses unpacked node_modules in packaged mode', async () => {
     mockApp.isPackaged = true;
-    mockApp.getAppPath.mockReturnValue('/Applications/Nimbalyst.app/Contents/Resources/app.asar');
+    mockApp.getAppPath.mockReturnValue(packagedAppPath);
 
     vi.spyOn(fs, 'existsSync').mockImplementation((candidate) => (
-      String(candidate) === '/Applications/Nimbalyst.app/Contents/Resources/app.asar.unpacked/node_modules'
+      path.normalize(String(candidate)) === packagedNodeModulesPath
     ));
 
     const { setupClaudeCodeEnvironment } = await import('../../../../electron/claudeCodeEnvironment');
     const env = setupClaudeCodeEnvironment();
 
-    expect(env.NODE_PATH).toBe('/Applications/Nimbalyst.app/Contents/Resources/app.asar.unpacked/node_modules');
+    expect(env.NODE_PATH).toBe(packagedNodeModulesPath);
   });
 });
