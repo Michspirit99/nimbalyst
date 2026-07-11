@@ -695,7 +695,7 @@ export class MessageStreamingHandler {
     // their runtime config from the persisted session before each send so a
     // cached provider cannot keep an empty or stale model after the picker
     // updates session.model and invalidates the prior instance.
-    if (['claude', 'openai', 'lmstudio'].includes(session.provider)) {
+    if (['claude', 'openai', 'lmstudio', 'synthetic'].includes(session.provider)) {
       let expectedModel: string | undefined;
       const fullModel = session.model || session.providerConfig?.model;
       if (fullModel) {

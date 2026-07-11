@@ -209,7 +209,7 @@ export function ModelSelector({
     return getProviderIcon(provider, { size });
   };
 
-  const CHAT_MODEL_PROVIDERS = new Set(['claude', 'openai', 'lmstudio']);
+  const CHAT_MODEL_PROVIDERS = new Set(['claude', 'openai', 'lmstudio', 'synthetic']);
   const getProviderType = (provider: string): ProviderType => {
     if (isAgentProvider(provider)) return 'agent';
     if (CHAT_MODEL_PROVIDERS.has(provider)) return 'model';
