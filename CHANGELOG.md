@@ -10,12 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Tracker types can now be organized into manually ordered folders that stay in sync for everyone on a Nimbalyst Team project.
 
 ### Changed
 <!-- Changes to existing functionality go here -->
 - Completed tracker reference chips now show a checkmark and crossed-out text in documents and AI chats.
 
 ### Fixed
+- Importing Mermaid diagrams into Excalidraw works again: flowcharts (including subgraphs) become editable shapes instead of failing or degrading to a broken image, and AI-added arrows no longer lose their labels.
+- Voice mode no longer stops listening while you are still speaking; the mic stays open until you finish or explicitly pause.
 - Shared-document comments now live in the text-selection toolbar instead of overlapping it.
 - MCP servers disabled in Settings no longer load in Claude Code (SDK) sessions; the disable toggle now governs both the CLI and SDK paths.
 - Directory grouping now handles Windows paths consistently across session edits, commit proposals, and Git history.
