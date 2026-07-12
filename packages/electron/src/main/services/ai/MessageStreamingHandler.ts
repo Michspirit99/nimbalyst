@@ -1218,10 +1218,40 @@ export class MessageStreamingHandler {
         // No need to configure per-session context
       } else {
         // Refresh credentials every turn for all providers so key changes in settings apply immediately.
+        // IMPORTANT: this initialize() replaces the provider's entire config object
+        // (BaseAIProvider.assigns this.config = config), so we MUST carry the model
+        // forward here too. Without it, the provider falls back to its DEFAULT_MODEL
+        // on every turn. For most providers that's merely the wrong model; for
+        // Synthetic.new the default ("hf:syn:coding") isn't a real HuggingFace id, so
+        // Synthetic.new rejects it with 400 "URL must begin with https://huggingface.co".
         const freshApiKey = this.svc.getApiKeyForProvider(session.provider, effectiveWorkspacePath);
         const turnEffortLevel = resolveEffortLevel((session.metadata as any)?.effortLevel, getDefaultEffortLevel());
+
+        // Resolve the model the same way the pre-send refresh block above does:
+        // prefer the session's chosen model, else the provider default. Extract the
+        // provider-local id (strip the "synthetic:"/"openai:" prefix) so the raw id
+        // is what reaches the provider API.
+        let turnModel: string | undefined;
+        const turnFullModel = session.model || session.providerConfig?.model;
+        if (turnFullModel) {
+          const modelForProvider = extractModelForProvider(turnFullModel, session.provider as AIProviderType);
+          if (modelForProvider !== null) {
+            turnModel = modelForProvider;
+          }
+        }
+        if (!turnModel) {
+          const defaultModel = await ModelRegistry.getDefaultModel(session.provider as AIProviderType);
+          if (defaultModel) {
+            const defaultModelForProvider = extractModelForProvider(defaultModel, session.provider as AIProviderType);
+            if (defaultModelForProvider !== null) {
+              turnModel = defaultModelForProvider;
+            }
+          }
+        }
+
         await provider.initialize({
           apiKey: freshApiKey,
+          model: turnModel,
           maxTokens: (session.providerConfig as any)?.maxTokens,
           temperature: (session.providerConfig as any)?.temperature,
           ...(turnEffortLevel && { effortLevel: turnEffortLevel }),
@@ -2312,12 +2342,13 @@ export class MessageStreamingHandler {
               const newOutputTokens = tokenUsage.output_tokens || 0;
               const newTotalTokens = newInputTokens + newOutputTokens;
               const isCodexProvider = session.provider === 'openai-codex';
+              const isContextSnapshotProvider = isCodexProvider || session.provider === 'synthetic';
               const codexInitData = isCodexProvider ? (provider as any).getInitData?.() : null;
               const isResumedCodexThread = codexInitData?.isResumedThread === true;
 
-              const codexContextWindow =
-                isCodexProvider
-                  ? (contextWindowFromChunk || currentUsage.contextWindow)
+              const providerContextWindow =
+                isContextSnapshotProvider
+                  ? (contextWindowFromChunk || selectedModelContextWindow || currentUsage.contextWindow)
                   : currentUsage.contextWindow;
 
               // Codex SDK turn.completed usage is cumulative for the provider thread.
@@ -2373,11 +2404,11 @@ export class MessageStreamingHandler {
                   providerCumulativeInputTokens,
                   providerCumulativeOutputTokens,
                 } : {}),
-                contextWindow: codexContextWindow,
+                contextWindow: providerContextWindow,
                 currentContext:
-                  isCodexProvider && !contextCompacted
-                    ? (contextFillTokens !== undefined && codexContextWindow
-                      ? { tokens: contextFillTokens, contextWindow: codexContextWindow }
+                  isContextSnapshotProvider && !contextCompacted
+                    ? (contextFillTokens !== undefined && providerContextWindow
+                      ? { tokens: contextFillTokens, contextWindow: providerContextWindow }
                       : currentUsage.currentContext)
                     : currentUsage.currentContext,
               };
@@ -2390,8 +2421,8 @@ export class MessageStreamingHandler {
                 tokenUsage: updatedUsage
               });
 
-              // Push context usage to mobile sync for Codex sessions
-              if (isCodexProvider && contextFillTokens !== undefined && codexContextWindow) {
+              // Push context usage to mobile sync for providers that emit context snapshots
+              if (isContextSnapshotProvider && contextFillTokens !== undefined && providerContextWindow) {
                 const syncProvider = getSyncProvider();
                 if (syncProvider) {
                   syncProvider.pushChange(session.id, {
@@ -2399,7 +2430,7 @@ export class MessageStreamingHandler {
                     metadata: {
                       currentContext: {
                         tokens: contextFillTokens,
-                        contextWindow: codexContextWindow,
+                        contextWindow: providerContextWindow,
                       },
                     } as any,
                   });

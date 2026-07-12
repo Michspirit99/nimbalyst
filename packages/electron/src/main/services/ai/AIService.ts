@@ -1526,6 +1526,13 @@ export class AIService {
       };
     }
 
+    if (request.provider === 'synthetic') {
+      return {
+        commands: ['compact'],
+        skills: [],
+      };
+    }
+
     if (supportsWorkspaceSlashWorkflowProvider(request.provider)) {
       return { commands: [], skills: [] };
     }
@@ -2926,6 +2933,7 @@ export class AIService {
       const showUsageIndicator = this.getSettingsStore().get('showUsageIndicator', true) as boolean;
       const showCodexUsageIndicator = this.getSettingsStore().get('showCodexUsageIndicator', true) as boolean;
       const showGeminiUsageIndicator = this.getSettingsStore().get('showGeminiUsageIndicator', true) as boolean;
+      const showSyntheticUsageIndicator = this.getSettingsStore().get('showSyntheticUsageIndicator', true) as boolean;
       const customClaudeCodePath = this.getSettingsStore().get('customClaudeCodePath', '') as string;
       const autoCommitEnabled = this.getSettingsStore().get('autoCommitEnabled', false) as boolean;
       const trackerAutomation = this.getSettingsStore().get('trackerAutomation', {
@@ -2950,6 +2958,7 @@ export class AIService {
         showUsageIndicator,
         showCodexUsageIndicator,
         showGeminiUsageIndicator,
+        showSyntheticUsageIndicator,
         customClaudeCodePath,
         autoCommitEnabled,
         trackerAutomation,
@@ -3049,6 +3058,7 @@ export class AIService {
       if (settings.showUsageIndicator !== undefined)       safeSet('ai.showUsageIndicator', settings.showUsageIndicator);
       if (settings.showCodexUsageIndicator !== undefined)  safeSet('ai.showCodexUsageIndicator', settings.showCodexUsageIndicator);
       if (settings.showGeminiUsageIndicator !== undefined) safeSet('ai.showGeminiUsageIndicator', settings.showGeminiUsageIndicator);
+      if (settings.showSyntheticUsageIndicator !== undefined) safeSet('ai.showSyntheticUsageIndicator', settings.showSyntheticUsageIndicator);
 
       if (settings.trackerAutomation !== undefined && typeof settings.trackerAutomation === 'object') {
         // Merge with current for partial updates (callers may send just the
@@ -3850,7 +3860,6 @@ export class AIService {
 
         const apiKey = provider === 'claude' ? globalApiKeys['anthropic']
           : provider === 'openai' ? globalApiKeys['openai']
-          : provider === 'synthetic' ? globalApiKeys['synthetic']
           : undefined;
         const baseUrl = provider === 'lmstudio' ? (globalApiKeys['lmstudio_url'] || undefined) : undefined;
 
@@ -4151,7 +4160,7 @@ export class AIService {
 
   /**
    * Resolve which chat provider and config to use for an extension completion request.
-   * Only chat providers (claude, openai, lmstudio) are supported.
+   * Only chat providers (claude, openai, lmstudio, synthetic) are supported.
    */
   private async resolveExtensionChatProvider(
     event: Electron.IpcMainInvokeEvent,

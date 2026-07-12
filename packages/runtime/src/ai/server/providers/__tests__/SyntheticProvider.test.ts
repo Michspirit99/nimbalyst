@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { SyntheticProvider } from '../SyntheticProvider';
+import { AgentMessagesRepository } from '../../../../storage/repositories/AgentMessagesRepository';
 
 // Mock the fetch API for testing
 const mockFetch = vi.fn();
@@ -13,6 +14,7 @@ describe('SyntheticProvider', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    AgentMessagesRepository.clearStore();
   });
 
   describe('initialize', () => {
@@ -58,7 +60,7 @@ describe('SyntheticProvider', () => {
         json: async () => ({
           data: [
             { id: 'hf:Qwen/Qwen3.6-72B-Instruct', max_tokens: 8192, context_length: 32768 },
-            { id: 'syn:coding', max_tokens: 8192, context_length: 32768 },
+            { id: 'hf:syn:coding', max_tokens: 8192, context_length: 32768 },
             { id: 'hf:meta-llama/Meta-Llama-3.1-405B-Instruct', max_tokens: 16384, context_length: 131072 }
           ]
         })
@@ -102,8 +104,8 @@ describe('SyntheticProvider', () => {
         json: async () => ({
           data: [
             { id: 'hf:Qwen/Qwen3.6-72B-Instruct', max_tokens: 8192, context_length: 32768 },
-            { id: 'syn:coding', max_tokens: 8192, context_length: 32768 },
-            { id: 'syn:chat', max_tokens: 4096, context_length: 16384 }
+            { id: 'hf:syn:coding', max_tokens: 8192, context_length: 32768 },
+            { id: 'hf:syn:chat', max_tokens: 4096, context_length: 16384 }
           ]
         })
       };
@@ -121,14 +123,14 @@ describe('SyntheticProvider', () => {
           contextWindow: 32768
         },
         {
-          id: 'synthetic:syn:coding',
+          id: 'synthetic:hf:syn:coding',
           name: 'Synthetic Coding',
           provider: 'synthetic',
           maxTokens: 8192,
           contextWindow: 32768
         },
         {
-          id: 'synthetic:syn:chat',
+          id: 'synthetic:hf:syn:chat',
           name: 'Synthetic Chat',
           provider: 'synthetic',
           maxTokens: 4096,
@@ -156,10 +158,10 @@ describe('SyntheticProvider', () => {
       expect(capabilities).toEqual({
         streaming: true,
         tools: true,
-        mcpSupport: false,
+        mcpSupport: true,
         edits: true,
-        resumeSession: false,
-        supportsFileTools: false
+        resumeSession: true,
+        supportsFileTools: true
       });
     });
   });
@@ -191,14 +193,259 @@ describe('SyntheticProvider', () => {
       const name1 = SyntheticProvider['formatModelName']('hf:Qwen/Qwen3.6-72B-Instruct');
       expect(name1).toBe('Qwen 3.6 72B Instruct');
 
-      const name2 = SyntheticProvider['formatModelName']('syn:coding');
+      const name2 = SyntheticProvider['formatModelName']('hf:syn:coding');
       expect(name2).toBe('Synthetic Coding');
 
       const name3 = SyntheticProvider['formatModelName']('hf:meta-llama/Meta-Llama-3.1-405B-Instruct');
       expect(name3).toBe('Meta Llama 3.1 405B Instruct');
 
-      const name4 = SyntheticProvider['formatModelName']('syn:chat-v2');
+      const name4 = SyntheticProvider['formatModelName']('hf:syn:chat-v2');
       expect(name4).toBe('Synthetic Chat V2');
+
+      // Bare syn: (without the required hf: prefix) is still recognized for display purposes
+      const name5 = SyntheticProvider['formatModelName']('syn:coding');
+      expect(name5).toBe('Synthetic Coding');
+    });
+  });
+
+  describe('sendMessage', () => {
+    // Build a mock streaming Response whose body yields the given SSE chunks.
+    // Each chunk is a template literal whose trailing newline is a real newline
+    // (valid inside backticks) — avoids escape-sequence mangling.
+    function mockSseResponse(chunks: string[]): any {
+      const encoder = new TextEncoder();
+      let i = 0;
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        body: {
+          getReader: () => ({
+            read: async () => {
+              if (i < chunks.length) {
+                return { done: false, value: encoder.encode(chunks[i++]) };
+              }
+              return { done: true, value: undefined };
+            }
+          })
+        },
+        text: async () => ''
+      };
+    }
+
+    // SSE chunks end with a real newline (the wire format uses \n as the line
+    // terminator). Using template literals keeps the newline literal and valid.
+    const TEXT_DELTA_CHUNK = `data: {"choices":[{"delta":{"content":"hi"}}]}
+`;
+    const DONE_CHUNK = `data: [DONE]
+`;
+    // Reasoning-model chunk: reasoning_content present, content empty/absent.
+    // GLM-4.7-Flash / DeepSeek / Qwen3 stream CoT via reasoning_content.
+    const REASONING_CHUNK = `data: {"choices":[{"delta":{"reasoning":"Analyzing","reasoning_content":"Analyzing"}}]}
+`;
+    const REASONING_CHUNK_NULL = `data: {"choices":[{"delta":{"content":"","reasoning_content":null}}]}
+`;
+
+    it('sends the raw model id (without the synthetic: prefix) to the API', async () => {
+      // Synthetic.new model ids contain their own colon (e.g. hf:Qwen/...).
+      // The combined id stored in config is "synthetic:hf:Qwen/...", but the API
+      // must receive the raw "hf:Qwen/..." id. Sending the combined id makes
+      // Synthetic.new return 400: "URL must begin with https://huggingface.co".
+      const provider = new SyntheticProvider();
+      await provider.initialize({
+        apiKey: 'test-api-key',
+        model: 'synthetic:hf:Qwen/Qwen3.6-72B-Instruct'
+      });
+
+      mockFetch.mockResolvedValue(mockSseResponse([TEXT_DELTA_CHUNK, DONE_CHUNK]) as any);
+
+      for await (const chunk of provider.sendMessage('hello', undefined, undefined)) {
+        // drain the stream
+      }
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.model).toBe('hf:Qwen/Qwen3.6-72B-Instruct');
+      expect(body.model).not.toContain('synthetic:');
+    });
+
+    it('falls back to the raw DEFAULT_MODEL when no model is configured', async () => {
+      const provider = new SyntheticProvider();
+      await provider.initialize({ apiKey: 'test-api-key' });
+
+      mockFetch.mockResolvedValue(mockSseResponse([TEXT_DELTA_CHUNK, DONE_CHUNK]) as any);
+
+      for await (const chunk of provider.sendMessage('hello', undefined, undefined)) {
+        // drain the stream
+      }
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.model).toBe('hf:Qwen/Qwen3.6-72B-Instruct');
+      expect(body.model).not.toContain('synthetic:');
+    });
+
+    it('keeps reasoning_content out of normal assistant text/final answer', async () => {
+      // Reasoning models (GLM-4.7-Flash, DeepSeek, Qwen3) stream chain-of-thought
+      // via `reasoning_content`. It should not be merged into normal assistant
+      // text or the persisted final answer.
+      const provider = new SyntheticProvider();
+      await provider.initialize({
+        apiKey: 'test-api-key',
+        model: 'synthetic:hf:zai-org/GLM-4.7-Flash'
+      });
+
+      mockFetch.mockResolvedValue(mockSseResponse([
+        REASONING_CHUNK_NULL, // first chunk: content "", reasoning_content null -> skipped
+        REASONING_CHUNK,       // reasoning token -> yielded as text
+        TEXT_DELTA_CHUNK,      // real content -> yielded as text
+        DONE_CHUNK
+      ]) as any);
+
+      const chunks: any[] = [];
+      for await (const chunk of provider.sendMessage('hello', undefined, undefined)) {
+        chunks.push(chunk);
+      }
+
+      const textChunks = chunks.filter(c => c.type === 'text').map(c => c.content);
+      expect(textChunks).toEqual(['hi']);
+      const complete = chunks.find(c => c.type === 'complete');
+      expect(complete.content).toBe('hi');
+    });
+
+    it('exposes /compact as a native Synthetic slash command', () => {
+      const provider = new SyntheticProvider();
+      expect(provider.getSlashCommands()).toEqual(['compact']);
+      expect(SyntheticProvider.getKnownSlashCommands()).toEqual(['compact']);
+    });
+
+    it('compacts persisted Synthetic history and stores a hidden checkpoint', async () => {
+      const create = vi.fn(async () => {});
+      AgentMessagesRepository.setStore({
+        create,
+        list: vi.fn(async () => [
+          { sessionId: 'session-1', source: 'synthetic', direction: 'input', content: 'Implement the blue-ferret feature' },
+          { sessionId: 'session-1', source: 'synthetic', direction: 'output', content: 'I updated src/ferret.ts' },
+        ] as any),
+      });
+
+      const provider = new SyntheticProvider();
+      await provider.initialize({
+        apiKey: 'test-api-key',
+        model: 'synthetic:hf:Qwen/Qwen3.6-72B-Instruct'
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'Blue-ferret feature implemented in src/ferret.ts.' } }] }),
+      } as any);
+
+      const chunks: any[] = [];
+      for await (const chunk of provider.sendMessage('/compact', undefined, 'session-1', [])) {
+        chunks.push(chunk);
+      }
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.stream).toBe(false);
+      expect(body.model).toBe('hf:Qwen/Qwen3.6-72B-Instruct');
+      expect(body.messages[1].content).toContain('Implement the blue-ferret feature');
+
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: 'session-1',
+        source: 'synthetic',
+        direction: 'output',
+        content: 'Blue-ferret feature implemented in src/ferret.ts.',
+        hidden: true,
+        searchable: false,
+        metadata: expect.objectContaining({ syntheticCompaction: true }),
+      }));
+      expect(chunks.some((chunk) => chunk.type === 'complete' && chunk.content.includes('Conversation compacted'))).toBe(true);
+    });
+
+    it('replays only the latest Synthetic compaction checkpoint plus later visible messages', async () => {
+      AgentMessagesRepository.setStore({
+        create: vi.fn(async () => {}),
+        list: vi.fn(async () => [
+          { sessionId: 'session-1', source: 'synthetic', direction: 'input', content: 'Old detail that should be compacted away' },
+          { sessionId: 'session-1', source: 'synthetic', direction: 'output', content: 'Compact summary: keep blue-ferret facts', hidden: true, metadata: { syntheticCompaction: true } },
+          { sessionId: 'session-1', source: 'synthetic', direction: 'input', content: 'New detail after compaction' },
+          { sessionId: 'session-1', source: 'synthetic', direction: 'output', content: 'Acknowledged new detail' },
+        ] as any),
+      });
+
+      const provider = new SyntheticProvider();
+      await provider.initialize({ apiKey: 'test-api-key' });
+      mockFetch.mockResolvedValue(mockSseResponse([TEXT_DELTA_CHUNK, DONE_CHUNK]) as any);
+
+      for await (const _chunk of provider.sendMessage('Continue', undefined, 'session-1', [])) {
+        // drain
+      }
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const serialized = JSON.stringify(body.messages);
+      expect(serialized).toContain('Compact summary: keep blue-ferret facts');
+      expect(serialized).toContain('New detail after compaction');
+      expect(serialized).not.toContain('Old detail that should be compacted away');
+    });
+
+    it('reconstructs context from persisted Synthetic agent messages after provider recreation/model switch', async () => {
+      AgentMessagesRepository.setStore({
+        create: vi.fn(async () => {}),
+        list: vi.fn(async () => [
+          { sessionId: 'session-1', source: 'synthetic', direction: 'input', content: 'Remember the codeword: blue-ferret' },
+          { sessionId: 'session-1', source: 'synthetic', direction: 'output', content: 'Got it — blue-ferret.' },
+        ] as any),
+      });
+
+      const provider = new SyntheticProvider();
+      await provider.initialize({
+        apiKey: 'test-api-key',
+        model: 'synthetic:hf:meta-llama/Meta-Llama-3.1-405B-Instruct'
+      });
+
+      mockFetch.mockResolvedValue(mockSseResponse([TEXT_DELTA_CHUNK, DONE_CHUNK]) as any);
+
+      // Simulates a post-model-switch provider instance: no legacy
+      // session.messages are supplied, so context must come from ai_agent_messages.
+      for await (const _chunk of provider.sendMessage('What is the codeword?', undefined, 'session-1', [])) {
+        // drain the stream
+      }
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.model).toBe('hf:meta-llama/Meta-Llama-3.1-405B-Instruct');
+      expect(body.messages).toEqual(expect.arrayContaining([
+        { role: 'user', content: 'Remember the codeword: blue-ferret' },
+        { role: 'assistant', content: 'Got it — blue-ferret.' },
+        { role: 'user', content: 'What is the codeword?' },
+      ]));
+    });
+
+    it('emits a complete chunk when the stream ends without a [DONE] sentinel', async () => {
+      // Synthetic.new's stream for some models just ends (reader `done: true`)
+      // without an explicit `data: [DONE]` line. Previously the `complete` chunk
+      // was only emitted inside the `[DONE]` handler, so the handler's
+      // `case 'complete'` never fired, the spinner stayed up forever, and the
+      // message was never saved. The post-loop fallback must emit completion.
+      const provider = new SyntheticProvider();
+      await provider.initialize({
+        apiKey: 'test-api-key',
+        model: 'synthetic:hf:zai-org/GLM-4.7-Flash'
+      });
+
+      // NO DONE_CHUNK — stream just ends after a content delta.
+      mockFetch.mockResolvedValue(mockSseResponse([TEXT_DELTA_CHUNK]) as any);
+
+      const chunks: any[] = [];
+      for await (const chunk of provider.sendMessage('hello', undefined, undefined)) {
+        chunks.push(chunk);
+      }
+
+      const textChunks = chunks.filter(c => c.type === 'text').map(c => c.content);
+      expect(textChunks).toEqual(['hi']);
+      const completes = chunks.filter(c => c.type === 'complete');
+      expect(completes.length).toBe(1); // exactly one completion (no double)
+      expect(completes[0].isComplete).toBe(true);
+      expect(completes[0].content).toBe('hi');
     });
   });
 });
@@ -218,7 +465,7 @@ describe.skipIf(!runSyntheticIntegration)('SyntheticProvider live integration', 
     const provider = new SyntheticProvider();
     await provider.initialize({
       apiKey,
-      model: 'syn:coding'
+      model: 'hf:syn:coding'
     });
 
     const chunks: any[] = [];

@@ -17,17 +17,19 @@ describe('ProviderIcons', () => {
   });
 
   describe('MaterialSymbol', () => {
-    it('renders custom SVG icons for built-in providers', () => {
+    it('renders custom icons for built-in providers', () => {
       const html = renderToStaticMarkup(<MaterialSymbol icon="synthetic" size={16} />);
       expect(html).toContain('<svg');
+      expect(html).toContain('aria-label="Synthetic.new"');
       expect(html).not.toContain('material-symbols-outlined');
     });
 
-    it('renders synthetic as a custom SVG (not a fallback glyph)', () => {
+    it('renders synthetic as an inline logo (not a fallback glyph)', () => {
       // Regression: before, synthetic was unknown to Material Symbols so the
       // icon rendered as the literal text "synthetic" instead of a glyph.
       const html = renderToStaticMarkup(<MaterialSymbol icon="synthetic" size={16} />);
-      expect(html).toMatch(/svg/);
+      expect(html).toMatch(/<svg[^>]+aria-label="Synthetic\.new"/);
+      expect(html).toContain('M27.8517 26.3314');
       expect(html).not.toMatch(/>\s*synthetic\s*</);
     });
 
@@ -39,9 +41,10 @@ describe('ProviderIcons', () => {
   });
 
   describe('getProviderIcon', () => {
-    it('renders a custom SVG for synthetic', () => {
+    it('renders the Synthetic inline SVG logo', () => {
       const html = renderToStaticMarkup(<>{getProviderIcon('synthetic', { size: 16 })}</>);
       expect(html).toContain('<svg');
+      expect(html).toContain('Synthetic.new');
     });
 
     it('renders a custom SVG for lmstudio', () => {
@@ -51,9 +54,10 @@ describe('ProviderIcons', () => {
   });
 
   describe('ProviderIcon', () => {
-    it('renders a synthetic SVG glyph', () => {
+    it('renders the Synthetic inline SVG logo', () => {
       const html = renderToStaticMarkup(<ProviderIcon provider="synthetic" size={16} />);
       expect(html).toContain('<svg');
+      expect(html).toContain('Synthetic.new');
     });
   });
 });

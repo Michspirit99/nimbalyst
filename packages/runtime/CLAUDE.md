@@ -8,7 +8,7 @@ Put React components in this package if they might be used by the mobile app. Co
 
 ## AI Providers
 
-Two categories — **agent providers** (Claude Agent, OpenAI Codex; full MCP, file-system tools, multi-file ops, session persistence) and **chat providers** (Claude Chat, OpenAI, LM Studio, Synthetic.new; direct API, files as context, faster, local model support). See [/docs/AI_PROVIDER_TYPES.md](/docs/AI_PROVIDER_TYPES.md).
+Two categories — **agent providers** (Claude Agent, OpenAI Codex, Synthetic.new; MCP/tool support, file-system tools, multi-file ops, session persistence) and **chat providers** (Claude Chat, OpenAI, LM Studio, Synthetic.new; direct API/model use, files as context, faster, local model support). Synthetic.new is dual-mode: it remains agent-capable via `isAgentProvider()` but also appears in chat/model-provider surfaces. See [/docs/AI_PROVIDER_TYPES.md](/docs/AI_PROVIDER_TYPES.md).
 
 | Provider ID | Implementation | Notes |
 | --- | --- | --- |

@@ -211,8 +211,13 @@ export function ModelSelector({
 
   const CHAT_MODEL_PROVIDERS = new Set(['claude', 'openai', 'lmstudio', 'synthetic']);
   const getProviderType = (provider: string): ProviderType => {
-    if (isAgentProvider(provider)) return 'agent';
+    // Synthetic.new is dual-mode: it can run as an agent provider, but the
+    // same OpenAI-compatible endpoint is also useful as a direct chat/model
+    // provider. Group it with chat models in the picker while the lower-level
+    // provider switch guard still treats existing Synthetic sessions as agentic
+    // for session-safety decisions.
     if (CHAT_MODEL_PROVIDERS.has(provider)) return 'model';
+    if (isAgentProvider(provider)) return 'agent';
     return 'agent';
   };
 
