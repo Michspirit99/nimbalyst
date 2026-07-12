@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- The Git extension now keeps a persistent, live command output history across panel and renderer reloads.
 - Tracker types can now be organized into manually ordered folders that stay in sync for everyone on a Nimbalyst Team project.
 - The Agent navigation icon now shows sessions awaiting input, running, or unread and opens a grouped attention list with a mark-all-read action.
 
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stopping a running Codex session (including from mobile) now interrupts it immediately instead of leaving it stuck showing as running.
 - Answering an interactive prompt from mobile — approving a plan, granting a tool permission, or answering a question — now works across every agent instead of silently doing nothing on non-Claude-Code sessions.
 - Tracker status badges and custom columns no longer vanish after a synced update; they stay put instead of blanking out until the next reload.
+- A long queue of pending prompts now scrolls within a capped area instead of pushing the message input off screen.
 
 ### Removed
 <!-- Removed features go here -->
