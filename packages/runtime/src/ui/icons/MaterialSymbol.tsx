@@ -64,6 +64,14 @@ const CUSTOM_ICONS: Record<string, (size: number, className: string) => React.Re
       <path d="M12 2c.9 5.4 4.6 9.1 10 10-5.4.9-9.1 4.6-10 10-.9-5.4-4.6-9.1-10-10 5.4-.9 9.1-4.6 10-10z"/>
     </svg>
   ),
+
+  // Synthetic.new logo (six-pointed node: hexagon outline with a central dot)
+  'synthetic': (size, className) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" className={className}>
+      <path d="M12 2.5l8 4.5v10l-8 4.5-8-4.5V7l8-4.5z"/>
+      <circle cx="12" cy="12" r="2.25" fill="currentColor" stroke="none"/>
+    </svg>
+  ),
 };
 
 export function MaterialSymbol({

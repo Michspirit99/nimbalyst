@@ -383,6 +383,7 @@ export function SettingsView({
     'opencode',
     'copilot-cli',
     'lmstudio',
+    'synthetic',
   ];
   const userCategories: SettingsCategory[] = [
     'claude-code',
@@ -392,6 +393,7 @@ export function SettingsView({
     'opencode',
     'copilot-cli',
     'lmstudio',
+    'synthetic',
     ...(developerMode ? (['github'] as SettingsCategory[]) : []),
     'sync',
     'shared-links',
