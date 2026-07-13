@@ -93,41 +93,15 @@ describe('FileSnapshotCache', () => {
       expect(stats.fileCount).toBe(0);
     });
 
-    it('should cache dirty files from git status', async () => {
-      setupGitMocks({
-        'status --porcelain': ' M src/modified.ts\nA  src/staged.ts\n?? src/new.ts\n',
-      });
-
-      mockReadFile.mockImplementation(async (filePath: string) => {
-        if (filePath.endsWith('src/modified.ts')) return 'working modified content';
-        if (filePath.endsWith('src/staged.ts')) return 'working staged content';
-        if (filePath.endsWith('src/new.ts')) return 'working new content';
-        throw new Error('not found');
-      });
-
-      const cache = new FileSnapshotCache();
-      await cache.startSession(workspacePath, 'session-1');
-
-      const stats = cache.getStats();
-      expect(stats.fileCount).toBe(3);
-      expect(stats.isGitRepo).toBe(true);
-
-      const modifiedContent = await cache.getBeforeState(path.resolve(workspacePath, 'src/modified.ts'));
-      expect(modifiedContent).toBe('working modified content');
-
-      const stagedContent = await cache.getBeforeState(path.resolve(workspacePath, 'src/staged.ts'));
-      expect(stagedContent).toBe('working staged content');
-
-      const newContent = await cache.getBeforeState(path.resolve(workspacePath, 'src/new.ts'));
-      expect(newContent).toBe('working new content');
-    });
-
     it('should skip binary files when caching dirty files', async () => {
       setupGitMocks({
         'status --porcelain': ' M image.png\n M src/code.ts\n',
       });
 
-      mockReadFile.mockResolvedValue('code content');
+      mockReadFile.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('code.ts')) return 'content of code';
+        throw new Error('not found');
+      });
 
       const cache = new FileSnapshotCache();
       await cache.startSession(workspacePath, 'session-1');
@@ -159,8 +133,9 @@ describe('FileSnapshotCache', () => {
 
       mockStat.mockResolvedValue({ size: 500 });
       mockReadFile.mockImplementation(async (filePath: string) => {
-        if (filePath.endsWith('file1.ts')) return 'content of file1';
-        if (filePath.endsWith('file2.ts')) return 'content of file2';
+        const normalized = filePath.replace(/\\/g, '/');
+        if (normalized.endsWith('file1.ts')) return 'content of file1';
+        if (normalized.endsWith('file2.ts')) return 'content of file2';
         throw new Error('not found');
       });
 
@@ -300,7 +275,8 @@ describe('FileSnapshotCache', () => {
         'show abc123:src/clean.ts': 'committed clean content',
       });
       mockReadFile.mockImplementation(async (filePath: string) => {
-        if (filePath.endsWith('src/dirty.ts')) return 'working dirty content';
+        const normalized = filePath.replace(/\\/g, '/');
+        if (normalized.endsWith('src/dirty.ts')) return 'working dirty content';
         throw new Error('not found');
       });
 

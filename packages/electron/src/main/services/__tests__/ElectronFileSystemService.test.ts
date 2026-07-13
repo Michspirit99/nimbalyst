@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 
+/**
+ * Normalize paths to forward slashes for cross-platform testing.
+ * Windows uses backslashes, tests expect Unix-style paths.
+ */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 // Mock all dependencies before imports
 const { mockExecAsync } = vi.hoisted(() => ({ mockExecAsync: vi.fn() }));
 vi.mock('child_process');
@@ -74,16 +82,12 @@ describe('ElectronFileSystemService', () => {
 
       expect(result.success).toBe(true);
       expect(result.results).toHaveLength(2);
-      expect(result.results?.[0]).toEqual({
-        file: 'src/index.ts',
-        line: 10,
-        content: 'const result = "test";',
-      });
-      expect(result.results?.[1]).toEqual({
-        file: 'src/utils.ts',
-        line: 20,
-        content: 'return test();',
-      });
+      expect(normalizePath(result.results?.[0]?.file ?? '')).toBe('src/index.ts');
+      expect(result.results?.[0]?.line).toBe(10);
+      expect(result.results?.[0]?.content).toBe('const result = "test";');
+      expect(normalizePath(result.results?.[1]?.file ?? '')).toBe('src/utils.ts');
+      expect(result.results?.[1]?.line).toBe(20);
+      expect(result.results?.[1]?.content).toBe('return test();');
       expect(result.totalResults).toBe(2);
     });
 
@@ -158,8 +162,8 @@ describe('ElectronFileSystemService', () => {
 
       expect(result.success).toBe(true);
       expect(result.files).toHaveLength(2);
-      expect(result.files?.[0].path).toBe('src/index.ts');
-      expect(result.files?.[1].path).toBe('src/components/Button.tsx');
+      expect(normalizePath(result.files?.[0]?.path ?? '')).toBe('src/index.ts');
+      expect(normalizePath(result.files?.[1]?.path ?? '')).toBe('src/components/Button.tsx');
     });
 
     it('should handle list errors', async () => {

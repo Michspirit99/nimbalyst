@@ -102,12 +102,22 @@ vi.mock('../../utils/logger', () => ({
 }));
 
 // Mock workspaceDetection to avoid electron/store imports
-vi.mock('../../utils/workspaceDetection', () => ({
-  isPathInWorkspace: (filePath: string, workspacePath: string) => {
-    if (!filePath || !workspacePath) return false;
-    return filePath === workspacePath || filePath.startsWith(workspacePath + '/');
-  },
-}));
+vi.mock('../../utils/workspaceDetection', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require('path');
+  return {
+    isPathInWorkspace: (filePath: string, workspacePath: string) => {
+      if (!filePath || !workspacePath) return false;
+      // Resolve both to absolute paths, then compare (mirrors production).
+      const resolvedFile = path.resolve(filePath);
+      const resolvedWorkspace = path.resolve(workspacePath);
+      // Normalize separators to forward slashes for cross-platform comparison.
+      const normFile = resolvedFile.replace(/\\/g, '/');
+      const normWorkspace = resolvedWorkspace.replace(/\\/g, '/');
+      return normFile === normWorkspace || normFile.startsWith(normWorkspace + '/');
+    },
+  };
+});
 
 // Mock the `ignore` package with enough behavior for our test patterns.
 vi.mock('ignore', () => {
@@ -153,6 +163,22 @@ import type { WorkspaceEventListener } from '../WorkspaceEventBus';
 
 const WORKSPACE = '/Users/test/project';
 
+/**
+ * Normalize paths to forward slashes for cross-platform testing.
+ * Windows uses backslashes, tests expect Unix-style paths.
+ */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/**
+ * Normalize a path for cross-platform matching. Used in `toHaveBeenCalledWith`
+ * assertions where the actual call arg uses platform-specific separators.
+ */
+function expectedPath(p: string): string {
+  return normalizePath(p);
+}
+
 function createListener(): WorkspaceEventListener & {
   changes: Array<{ path: string; type: string; bypassed?: boolean }>;
 } {
@@ -169,6 +195,25 @@ function createListener(): WorkspaceEventListener & {
       changes.push({ path: filePath, type: 'unlink', bypassed: gitignoreBypassed });
     }),
   };
+}
+
+/**
+ * Asserts that the listener was called with the given path (normalized to
+ * forward slashes for cross-platform). Use this instead of toHaveBeenCalledWith
+ * when the production code passes platform-native paths.
+ */
+function expectCalledWithNormalizedPath(mockFn: any, expectedPath: string, ...rest: any[]) {
+  expect(mockFn).toHaveBeenCalled();
+  const calls = mockFn.mock.calls;
+  const matchedCall = calls.find((call: any[]) =>
+    call.length >= 1 && normalizePath(call[0]) === normalizePath(expectedPath)
+  );
+  expect(matchedCall).toBeDefined();
+  if (rest.length > 0 && matchedCall) {
+    for (let i = 0; i < rest.length; i++) {
+      expect(matchedCall[i + 1]).toEqual(rest[i]);
+    }
+  }
 }
 
 /** Simulate an fs.watch event for the most recently created watcher. */
@@ -211,10 +256,10 @@ describe('WorkspaceEventBus gitignore bypass', () => {
       await subscribe(WORKSPACE, 'test-sub', listener);
 
       addGitignoreBypass(WORKSPACE, `${WORKSPACE}/temp/bundle.js`);
-      expect(hasGitignoreBypass(WORKSPACE, `${WORKSPACE}/temp/bundle.js`)).toBe(true);
+      expect(hasGitignoreBypass(WORKSPACE, expectedPath(`${WORKSPACE}/temp/bundle.js`))).toBe(true);
 
       removeGitignoreBypass(WORKSPACE, `${WORKSPACE}/temp/bundle.js`);
-      expect(hasGitignoreBypass(WORKSPACE, `${WORKSPACE}/temp/bundle.js`)).toBe(false);
+      expect(hasGitignoreBypass(WORKSPACE, expectedPath(`${WORKSPACE}/temp/bundle.js`))).toBe(false);
 
       unsubscribe(WORKSPACE, 'test-sub');
     });
@@ -246,17 +291,19 @@ describe('WorkspaceEventBus gitignore bypass', () => {
       await subscribe(WORKSPACE, 'test-sub', listener);
 
       fireWatchEvent('change', 'temp/bundle.js');
-      expect(listener.onChange).toHaveBeenLastCalledWith(
-        `${WORKSPACE}/temp/bundle.js`,
-        undefined,
-      );
+      expectCalledWithNormalizedPath(listener.onChange, `${WORKSPACE}/temp/bundle.js`, undefined);
 
       fireWatchEvent('change', '.gitignore');
       fireWatchEvent('change', 'temp/bundle.js');
 
-      expect(onGitignoreChange).toHaveBeenCalledWith(WORKSPACE);
-      expect(listener.changes.filter((change) => change.path.endsWith('temp/bundle.js'))).toHaveLength(1);
-      expect(listener.changes.some((change) => change.path.endsWith('/.gitignore'))).toBe(true);
+      expect(onGitignoreChange).toHaveBeenCalled();
+      // The gitignore change handler receives the resolved workspace path,
+      // which is platform-specific on Windows (path.resolve prefixes drive).
+      const callArgs = onGitignoreChange.mock.calls[0];
+      expect(callArgs[0]).toBeDefined();
+      expect(normalizePath(callArgs[0])).toBe(normalizePath(require('path').resolve(WORKSPACE)));
+      expect(listener.changes.filter((change) => normalizePath(change.path).endsWith('temp/bundle.js'))).toHaveLength(1);
+      expect(listener.changes.some((change) => normalizePath(change.path).endsWith('/.gitignore'))).toBe(true);
 
       unsubscribe(WORKSPACE, 'test-sub');
     });
@@ -268,10 +315,7 @@ describe('WorkspaceEventBus gitignore bypass', () => {
       // src/app.ts is not gitignored
       fireWatchEvent('change', 'src/app.ts');
 
-      expect(listener.onChange).toHaveBeenCalledWith(
-        `${WORKSPACE}/src/app.ts`,
-        undefined,
-      );
+      expectCalledWithNormalizedPath(listener.onChange, `${WORKSPACE}/src/app.ts`, undefined);
       expect(listener.changes[0]?.bypassed).toBeUndefined();
 
       unsubscribe(WORKSPACE, 'test-sub');
@@ -297,10 +341,7 @@ describe('WorkspaceEventBus gitignore bypass', () => {
       addGitignoreBypass(WORKSPACE, `${WORKSPACE}/temp/bundle.js`);
       fireWatchEvent('change', 'temp/bundle.js');
 
-      expect(listener.onChange).toHaveBeenCalledWith(
-        `${WORKSPACE}/temp/bundle.js`,
-        true,
-      );
+      expectCalledWithNormalizedPath(listener.onChange, `${WORKSPACE}/temp/bundle.js`, true);
       expect(listener.changes[0]?.bypassed).toBe(true);
 
       unsubscribe(WORKSPACE, 'test-sub');
@@ -313,10 +354,7 @@ describe('WorkspaceEventBus gitignore bypass', () => {
       // .md files always bypass gitignore (Condition 2)
       fireWatchEvent('change', 'temp/README.md');
 
-      expect(listener.onChange).toHaveBeenCalledWith(
-        `${WORKSPACE}/temp/README.md`,
-        true,
-      );
+      expectCalledWithNormalizedPath(listener.onChange, `${WORKSPACE}/temp/README.md`, true);
 
       unsubscribe(WORKSPACE, 'test-sub');
     });
@@ -333,10 +371,7 @@ describe('WorkspaceEventBus gitignore bypass', () => {
 
       // Wait for the async fs.access check
       await vi.waitFor(() => {
-        expect(listener.onAdd).toHaveBeenCalledWith(
-          `${WORKSPACE}/temp/output.js`,
-          true,
-        );
+        expectCalledWithNormalizedPath(listener.onAdd, `${WORKSPACE}/temp/output.js`, true);
       });
 
       unsubscribe(WORKSPACE, 'test-sub');
@@ -359,10 +394,7 @@ describe('WorkspaceEventBus gitignore bypass', () => {
 
       await vi.advanceTimersByTimeAsync(125);
 
-      expect(listener.onAdd).toHaveBeenCalledWith(
-        `${WORKSPACE}/temp/output.js`,
-        true,
-      );
+      expectCalledWithNormalizedPath(listener.onAdd, `${WORKSPACE}/temp/output.js`, true);
       expect(listener.onUnlink).not.toHaveBeenCalled();
 
       unsubscribe(WORKSPACE, 'test-sub');
@@ -382,10 +414,7 @@ describe('WorkspaceEventBus gitignore bypass', () => {
       // Now register bypass — should replay the dropped event
       addGitignoreBypass(WORKSPACE, `${WORKSPACE}/temp/bundle.js`);
 
-      expect(listener.onChange).toHaveBeenCalledWith(
-        `${WORKSPACE}/temp/bundle.js`,
-        true,
-      );
+      expectCalledWithNormalizedPath(listener.onChange, `${WORKSPACE}/temp/bundle.js`, true);
 
       unsubscribe(WORKSPACE, 'test-sub');
     });
@@ -442,10 +471,7 @@ describe('WorkspaceEventBus gitignore bypass', () => {
       fireWatchEvent('rename', 'temp');
 
       await vi.waitFor(() => {
-        expect(treeListener.onAdd).toHaveBeenCalledWith(
-          `${WORKSPACE}/temp`,
-          true,
-        );
+        expectCalledWithNormalizedPath(treeListener.onAdd, `${WORKSPACE}/temp`, true);
       });
       // AI/editor listener still drops gitignored adds it isn't tracking.
       expect(aiListener.onAdd).not.toHaveBeenCalled();
@@ -466,10 +492,7 @@ describe('WorkspaceEventBus gitignore bypass', () => {
       fireWatchEvent('rename', 'temp');
 
       await vi.waitFor(() => {
-        expect(treeListener.onUnlink).toHaveBeenCalledWith(
-          `${WORKSPACE}/temp`,
-          true,
-        );
+        expectCalledWithNormalizedPath(treeListener.onUnlink, `${WORKSPACE}/temp`, true);
       });
       expect(aiListener.onUnlink).not.toHaveBeenCalled();
 

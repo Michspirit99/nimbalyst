@@ -5,8 +5,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SafePathValidator } from '../SafePathValidator';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { mkdtempSync } from 'fs';
+
+/**
+ * Normalize paths to forward slashes for cross-platform testing.
+ * Windows uses backslashes, tests expect Unix-style paths.
+ */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
 
 describe('SafePathValidator Security Tests', () => {
   let validator: SafePathValidator;
@@ -233,7 +241,7 @@ describe('SafePathValidator Security Tests', () => {
       for (const { input, expected } of paths) {
         const result = validator.validate(input);
         expect(result.isValid).toBe(true);
-        expect(result.sanitizedPath).toBe(expected);
+        expect(normalizePath(result.sanitizedPath!)).toBe(expected);
       }
     });
 
@@ -257,21 +265,28 @@ describe('SafePathValidator Security Tests', () => {
 
     it('should handle short paths in safe logging', () => {
       expect(SafePathValidator.getSafeLogPath('file.txt')).toBe('file.txt');
-      expect(SafePathValidator.getSafeLogPath('folder/file.txt')).toBe('folder/file.txt');
+      expect(normalizePath(SafePathValidator.getSafeLogPath('folder/file.txt'))).toBe('folder/file.txt');
     });
   });
 
   describe('System Path Detection', () => {
     it('should throw error if workspace is in system directory', () => {
-      const systemPaths = [
-        '/System/Library',
-        '/usr/bin',
-        '/etc',
-        '/bin',
-      ];
+      // Unix-style system paths (only tested on Unix platforms)
+      const unixSystemPaths = ['/System/Library', '/usr/bin', '/etc', '/bin'];
 
-      for (const sysPath of systemPaths) {
+      for (const sysPath of unixSystemPaths) {
+        // On Windows, these aren't recognized as system paths because the
+        // production code uses platform-specific detection. Skip on Windows.
+        if (process.platform === 'win32' && sysPath.startsWith('/')) continue;
         expect(() => new SafePathValidator(sysPath)).toThrow('system directory');
+      }
+
+      // Windows-specific system paths (only tested on Windows)
+      if (process.platform === 'win32') {
+        const windowsSystemPaths = ['C:\\Windows\\System32', 'C:\\Program Files', 'C:\\ProgramData'];
+        for (const sysPath of windowsSystemPaths) {
+          expect(() => new SafePathValidator(sysPath)).toThrow('system directory');
+        }
       }
     });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sep } from 'path';
+import { sep, resolve } from 'path';
 import {
   encodeNimPreviewUrl,
   validateNimPreviewPath,
@@ -12,9 +12,13 @@ import {
 const ROOT = `${sep}tmp${sep}preview-root`;
 const OTHER = `${sep}tmp${sep}preview-other`;
 
+function normalizePath(p: string | null): string | null {
+  return p ? resolve(p).replace(/\\/g, "/") : p;
+}
+
 describe('nimPreviewProtocol', () => {
   describe('encodeNimPreviewUrl', () => {
-    const hexRoot = Buffer.from(ROOT, 'utf8').toString('hex');
+    const hexRoot = Buffer.from(resolve(ROOT), 'utf8').toString('hex');
 
     // Issue #612: the URL must NOT carry the root in the username (Electron's
     // protocol.handle strips credentials and partitioned sessions refuse
@@ -62,7 +66,7 @@ describe('nimPreviewProtocol', () => {
     const roots = [ROOT, OTHER];
 
     it('accepts an HTML file directly under an allowlisted root', () => {
-      expect(validateNimPreviewPath(ROOT, 'index.html', roots)).toBe(`${ROOT}${sep}index.html`);
+      expect(normalizePath(validateNimPreviewPath(ROOT, 'index.html', roots))).toBe(normalizePath(`${ROOT}${sep}index.html`));
     });
 
     it('accepts CSS, JS, font, and image assets', () => {
@@ -80,7 +84,7 @@ describe('nimPreviewProtocol', () => {
 
     it('accepts nested asset paths', () => {
       const result = validateNimPreviewPath(ROOT, 'deeply/nested/page/index.html', roots);
-      expect(result).toBe(`${ROOT}${sep}deeply${sep}nested${sep}page${sep}index.html`);
+      expect(normalizePath(result)).toBe(normalizePath(`${ROOT}${sep}deeply${sep}nested${sep}page${sep}index.html`));
     });
 
     it('rejects when no roots are configured', () => {

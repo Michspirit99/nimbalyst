@@ -67,18 +67,19 @@ describe('mergeAISettings -- customClaudeCodePath', () => {
     expect(effective.customClaudeCodePath).toBe('/usr/local/bin/claude-global');
     expect(effective.overrides.customClaudeCodePath).toBe(false);
     expect(getAIProviderOverridesMock).not.toHaveBeenCalled();
-  });
+});
 
-  it('inherits the parent project override when the workspace path is a worktree', () => {
+it('inherits the parent project override when the workspace path is a worktree', () => {
     getAIProviderOverridesMock.mockImplementation((workspacePath: string) => {
-      if (workspacePath === '/workspace/project') {
+      // Normalize paths to handle both Windows and Unix separators
+      const normalizedPath = workspacePath.replace(/\\/g, '/');
+      if (normalizedPath === '/workspace/project') {
         return { customClaudeCodePath: '/opt/project/claude' };
       }
       return undefined;
     });
 
     const effective = mergeAISettings(baseGlobal, '/workspace/project_worktrees/swift-falcon');
-
     expect(effective.customClaudeCodePath).toBe('/opt/project/claude');
     expect(effective.overrides.customClaudeCodePath).toBe(true);
   });

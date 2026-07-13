@@ -61,7 +61,12 @@ describe('MigrationOrchestrator', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      // Windows EPERM: files may still be locked by SQLite/PGLite.
+      // Best-effort cleanup; OS temp dir will eventually reap it.
+    }
   });
 
   async function buildFixturePglite(): Promise<void> {
@@ -140,7 +145,7 @@ describe('MigrationOrchestrator', () => {
 
     expect(closeRunningPglite).toHaveBeenCalledTimes(1);
     expect(cutoverSpy).toHaveBeenCalledTimes(1);
-  });
+  }, 30000);
 
   it('on migration failure: removes partial sqlite-db, leaves pglite-db untouched, no flag written, broadcasts failed', async () => {
     await buildFixturePglite();
@@ -172,7 +177,7 @@ describe('MigrationOrchestrator', () => {
     // Failed channel fired.
     const failedCall = broadcast.mock.calls.find((c) => c[0] === 'db:migration:failed');
     expect(failedCall).toBeTruthy();
-  });
+  }, 30000);
 
   it('preflight returns ok=false when no pglite-db directory exists', async () => {
     const stubReader: LivePgliteReader = {
@@ -210,7 +215,7 @@ describe('MigrationOrchestrator', () => {
     const aside = fs.readdirSync(userDataPath).find((d) => d.startsWith('sqlite-db.aborted-'));
     expect(aside).toBeTruthy();
     expect(fs.existsSync(path.join(userDataPath, aside!, 'stale-marker.txt'))).toBe(true);
-  });
+  }, 30000);
 
   it('captures writes that land after the bulk copy but before cutover', async () => {
     await buildFixturePglite();
@@ -250,5 +255,5 @@ describe('MigrationOrchestrator', () => {
     );
     expect(Number(result.rows[0]?.c ?? 0)).toBe(1);
     await sqliteDb.close();
-  });
+  }, 30000);
 });

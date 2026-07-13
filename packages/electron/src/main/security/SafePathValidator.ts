@@ -267,8 +267,11 @@ export class SafePathValidator {
    * Get a safe version of a path for logging (doesn't expose full paths)
    */
   static getSafeLogPath(path: string): string {
-    // Only show the last 2 components of the path for logging
-    const parts = path.split(sep);
+    // Only show the last 2 components of the path for logging.
+    // Normalize separators to forward slashes first so cross-platform paths
+    // (e.g. /Users/... passed on Windows) split correctly regardless of sep.
+    const normalized = path.replace(/\\/g, '/');
+    const parts = normalized.split('/');
     if (parts.length <= 2) {
       return path;
     }

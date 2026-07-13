@@ -1,4 +1,25 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as os from 'os';
+import * as path from 'path';
+
+/**
+ * Normalize paths to forward slashes for cross-platform testing.
+ * Windows uses backslashes, tests expect Unix-style paths.
+ */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/**
+ * Helper: normalize mock pathExists calls between OS path formatting.
+ * On Windows, os.homedir() returns C:\Users\..., tests expect /Users/me.
+ */
+function mockPathExists(...paths: string[]) {
+  return (...rest: string[]) => {
+    if (rest.length !== paths.length) return false;
+    return rest.every((p, i) => normalizePath(p) === normalizePath(paths[i]));
+  };
+}
 import { ClaudeCliSessionLauncher, type ClaudeCliSessionLauncherDeps } from '../ClaudeCliSessionLauncher';
 
 type CreateClaudeCliTerminal = ClaudeCliSessionLauncherDeps['terminalManager']['createClaudeCliTerminal'];
@@ -61,11 +82,14 @@ describe('ClaudeCliSessionLauncher', () => {
 
     expect(getMcpServersConfig).toHaveBeenCalledWith({ sessionId: 'sess-01HABC', workspacePath: '/work' });
     expect(writes).toHaveLength(1);
-    expect(result.mcpConfigPath).toBe('/tmp/claude-cli-test/sess-01HABC.mcp.json');
 
     const parsed = JSON.parse(writes[0].data);
     expect(parsed).toHaveProperty('mcpServers');
     expect(parsed.mcpServers['nimbalyst'].url).toContain('sessionId=sess-01HABC');
+    
+    // Normalize path for cross-platform testing (Windows uses \ separators)
+    const normalizedPath = normalizePath(result.mcpConfigPath);
+    expect(normalizedPath).toBe('/tmp/claude-cli-test/sess-01HABC.mcp.json');
   });
 
   it('spawns the CLI terminal with the temp mcp-config path and the session id', async () => {
@@ -385,15 +409,22 @@ describe('ClaudeCliSessionLauncher', () => {
     expect(args).not.toContain('--resume');
   });
 
-  it('RESUMES with --resume (not --session-id) when the CLI jsonl already exists', async () => {
-    // The probed path is the deterministic ~/.claude/projects/<enc-cwd>/<id>.jsonl.
-    const expectedJsonl =
-      '/Users/me/.claude/projects/-work/c261169b-d681-43e7-9c59-de4035b65cef.jsonl';
-    const pathExists = vi.fn((p: string) => p === expectedJsonl);
+it('RESUMES with --resume (not --session-id) when the CLI jsonl already exists', async () => {
+      // The probed path is the deterministic ~/.claude/projects/<enc-cwd>/<id>.jsonl.
+      const expectedJsonl =
+        '/Users/me/.claude/projects/-work/c261169b-d681-43e7-9c59-de4035b65cef.jsonl';
+      
+    const pathExists = vi.fn((p: string) => {
+      // Normalize and compare regardless of OS path separators
+      const normalizedP = p.replace(/\\/g, '/');
+      return normalizedP === expectedJsonl.replace(/\\/g, '/');
+    });
     const { launcher, createClaudeCliTerminal } = makeHarness({ pathExists });
     await launcher.launch(uuidInput);
 
-    expect(pathExists).toHaveBeenCalledWith(expectedJsonl);
+    // Verify pathExists was called (with any normalized version of the expected path)
+    expect(pathExists).toHaveBeenCalled();
+    expect(normalizePath(pathExists.mock.calls[0][0])).toBe(expectedJsonl);
     const args = createClaudeCliTerminal.mock.calls[0][1].spawnConfig.args;
     expect(args).toContain('--resume');
     expect(args[args.indexOf('--resume') + 1]).toBe(uuidInput.sessionId);

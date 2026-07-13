@@ -6,6 +6,14 @@ import {
 } from '../claudeCliJsonlPath';
 
 /**
+ * Normalize paths to forward slashes for cross-platform testing.
+ * Windows uses backslashes, tests expect Unix-style paths.
+ */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/**
  * Pure helpers behind the BUG 3 fix (NIM-806, Phase 3): the genuine `claude` CLI
  * rejects `--session-id <uuid>` once that id exists on disk, so on relaunch we
  * must switch to `--resume`. The resume decision is a pure function of whether
@@ -36,14 +44,12 @@ describe('claudeCliJsonlPath', () => {
   describe('resolveClaudeCliJsonlPath', () => {
     it('builds ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl', () => {
       expect(
-        resolveClaudeCliJsonlPath({
+        normalizePath(resolveClaudeCliJsonlPath({
           homedir: '/Users/ghinkle',
           cwd: '/Users/ghinkle/sources/stravu-editor',
           sessionId: 'c261169b-d681-43e7-9c59-de4035b65cef',
-        }),
-      ).toBe(
-        '/Users/ghinkle/.claude/projects/-Users-ghinkle-sources-stravu-editor/c261169b-d681-43e7-9c59-de4035b65cef.jsonl',
-      );
+        })),
+      ).toBe('/Users/ghinkle/.claude/projects/-Users-ghinkle-sources-stravu-editor/c261169b-d681-43e7-9c59-de4035b65cef.jsonl');
     });
   });
 

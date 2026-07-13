@@ -67,7 +67,11 @@ describe('MigrationOrchestrator fixture round-trip', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      // Windows EPERM: files may still be locked by SQLite/PGLite.
+    }
   });
 
   async function seedFixture(): Promise<void> {
@@ -325,5 +329,5 @@ describe('MigrationOrchestrator fixture round-trip', () => {
     } finally {
       await sqlite.close();
     }
-  });
+  }, 60000);
 });

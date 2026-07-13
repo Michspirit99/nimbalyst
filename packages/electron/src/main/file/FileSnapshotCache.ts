@@ -293,7 +293,7 @@ export class FileSnapshotCache {
 
     const directRelative = path.relative(this.workspacePath, filePath);
     if (this.isRelativeInsideWorkspace(directRelative)) {
-      return { workspacePath: this.workspacePath, relativePath: directRelative };
+      return { workspacePath: this.workspacePath, relativePath: directRelative.split(path.sep).join('/') };
     }
 
     try {
@@ -305,7 +305,7 @@ export class FileSnapshotCache {
       if (!this.isRelativeInsideWorkspace(canonicalRelative)) {
         return null;
       }
-      return { workspacePath: realWorkspacePath, relativePath: canonicalRelative };
+      return { workspacePath: realWorkspacePath, relativePath: canonicalRelative.split(path.sep).join('/') };
     } catch {
       return null;
     }

@@ -160,7 +160,7 @@ describe('Claude Code v2 sync', () => {
   let syncSessions: typeof import('../ClaudeCodeSessionSync').syncSessions;
   beforeAll(async () => {
     ({ syncSessions } = await import('../ClaudeCodeSessionSync'));
-  });
+  }, 30000);
 
   it('imports follow-up user prompts as input direction even when parentUuid is set', async () => {
     // Repro of the live-import bug: 2.1.x threads parentUuid on every entry

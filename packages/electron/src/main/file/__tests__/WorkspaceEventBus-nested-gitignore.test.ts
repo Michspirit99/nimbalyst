@@ -59,12 +59,17 @@ vi.mock('../../utils/logger', () => ({
   },
 }));
 
-vi.mock('../../utils/workspaceDetection', () => ({
-  isPathInWorkspace: (filePath: string, workspacePath: string) => {
-    if (!filePath || !workspacePath) return false;
-    return filePath === workspacePath || filePath.startsWith(workspacePath + '/');
-  },
-}));
+vi.mock('../../utils/workspaceDetection', () => {
+  const path = require('path');
+  return {
+    isPathInWorkspace: (filePath: string, workspacePath: string) => {
+      if (!filePath || !workspacePath) return false;
+      const normFile = path.resolve(filePath).replace(/\\/g, '/');
+      const normWs = path.resolve(workspacePath).replace(/\\/g, '/');
+      return normFile === normWs || normFile.startsWith(normWs + '/');
+    },
+  };
+});
 
 import {
   subscribe,

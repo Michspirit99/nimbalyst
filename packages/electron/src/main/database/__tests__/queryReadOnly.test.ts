@@ -42,7 +42,6 @@ describe('queryReadOnly (PGLite native semantics)', () => {
     dataDir = path.join(os.tmpdir(), `pglite-readonly-test-${Date.now()}`);
     db = new PGlite({ dataDir }) as unknown as Pg;
     await (db as unknown as { waitReady: Promise<void> }).waitReady;
-
     await db.exec(`
       CREATE TABLE ai_sessions (
         id TEXT PRIMARY KEY,
@@ -64,12 +63,16 @@ describe('queryReadOnly (PGLite native semantics)', () => {
       'sess-1', 'src/auth.ts',
       'sess-1', 'src/middleware.ts',
     ]);
-  });
+  }, 30000);
 
   afterAll(async () => {
     if (db) await db.close();
     if (dataDir && fs.existsSync(dataDir)) {
-      fs.rmSync(dataDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+      } catch {
+        // Windows EPERM: files may still be locked.
+      }
     }
   });
 

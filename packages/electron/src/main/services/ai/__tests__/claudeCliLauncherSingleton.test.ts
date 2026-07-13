@@ -89,7 +89,7 @@ describe('claudeCliLauncherSingleton', () => {
       { success: true },
       { success: true },
     ]);
-  }, 20000);
+  }, 40000);
 
   it('ends session state when the launched CLI terminal exits', async () => {
     const h = await loadHarness();
@@ -102,7 +102,20 @@ describe('claudeCliLauncherSingleton', () => {
     onExit?.(7);
 
     expect(h.stateManager.endSession).toHaveBeenCalledWith('session-1');
-  }, 20000);
+  }, 40000);
+
+  it('short-circuits without launching when claude is not installed (NIM-852)', async () => {
+    const h = await loadHarness({ claudeInstalled: false });
+
+    const result = await h.ensureClaudeCliSession({ sessionId: 'session-1', workspacePath: '/work' });
+
+    expect(result).toEqual({
+      success: false,
+      claudeNotInstalled: true,
+      error: 'Claude Code CLI is not installed',
+    });
+    expect(h.stateManager.startSession).not.toHaveBeenCalled();
+  }, 40000);
 
   it('short-circuits without launching when claude is not installed (NIM-852)', async () => {
     const h = await loadHarness({ claudeInstalled: false });

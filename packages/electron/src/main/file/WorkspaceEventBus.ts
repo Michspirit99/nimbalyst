@@ -344,7 +344,7 @@ function findGitRootForPathCached(
   workspaceAbs: string,
   cache: Map<string, string | null>,
 ): string | null {
-  const sep = process.platform === 'win32' ? '\\' : '/';
+  const sep = path.sep;
   const boundaryWithSep = workspaceAbs.endsWith(sep) ? workspaceAbs : workspaceAbs + sep;
   if (absolutePath !== workspaceAbs && !absolutePath.startsWith(boundaryWithSep)) {
     return null;

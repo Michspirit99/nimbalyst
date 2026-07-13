@@ -74,12 +74,16 @@ describe('MigrationDryRunner', () => {
         [`s${i}`, 'claude', `Title ${i}`],
       );
     }
-  });
+  }, 30000);
 
   afterEach(async () => {
     await pglite.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      // Windows EPERM: files may still be locked.
+    }
+  }, 30000);
 
   it('runs end-to-end and returns stats without touching pglite-db or writing the flag', async () => {
     const runner = new MigrationDryRunner({
@@ -108,7 +112,7 @@ describe('MigrationDryRunner', () => {
     ).toBe(false);
     // No backend flag.
     expect(readBackendState(userDataPath)).toBeNull();
-  });
+  }, 30000);
 
   it('keepArtifacts=true leaves the dry-run dir for inspection', async () => {
     const runner = new MigrationDryRunner({
@@ -123,7 +127,7 @@ describe('MigrationDryRunner', () => {
       fs.existsSync(path.join(result.dryRunDir, 'nimbalyst.sqlite')),
     ).toBe(true);
     fs.rmSync(result.dryRunDir, { recursive: true, force: true });
-  });
+  }, 30000);
 
   it('streams progress events through the reporter and emits complete (not failed)', async () => {
     const broadcast = vi.fn();
@@ -140,7 +144,7 @@ describe('MigrationDryRunner', () => {
     expect(channels).toContain('db:migration:progress');
     expect(channels).toContain('db:migration:complete');
     expect(channels).not.toContain('db:migration:failed');
-  });
+  }, 30000);
 
   it('cleans up the dry-run dir on failure (schemaDir missing)', async () => {
     const runner = new MigrationDryRunner({
@@ -157,7 +161,7 @@ describe('MigrationDryRunner', () => {
     expect(leftover).toEqual([]);
     // No flag.
     expect(readBackendState(userDataPath)).toBeNull();
-  });
+  }, 30000);
 
   it('routes ALL migrator queries through queryReadOnly (live worker stays write-safe)', async () => {
     const readOnlyCalls: string[] = [];

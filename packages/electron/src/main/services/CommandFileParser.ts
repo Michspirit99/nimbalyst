@@ -125,9 +125,11 @@ function deriveSkillFallbackName(filePath: string, relativePath?: string): strin
     return path.basename(path.dirname(filePath)).trim();
   }
 
+  // Normalize separators to forward slashes first so Windows-style paths
+  // (e.g. `workspace-codex-skill\SKILL.md`) split correctly.
   const segments = relativePath
-    .replace(/\/SKILL\.md$/i, '')
     .replace(/\\/g, '/')
+    .replace(/\/SKILL\.md$/i, '')
     .split('/')
     .map(segment => segment.trim())
     .filter(Boolean);

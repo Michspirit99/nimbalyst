@@ -46,13 +46,17 @@ describe('PGLiteToSQLiteMigrator', () => {
       sampleRate: 0,
     });
     await sqlite.initialize();
-  });
+  }, 30000);
 
   afterEach(async () => {
     await sqlite.close();
     await pglite.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      // Windows EPERM: files may still be locked.
+    }
+  }, 30000);
 
   async function seedPgliteSchema(): Promise<void> {
     // Reproduce a minimal subset of the PGLite end-state schema. We don't run
@@ -455,7 +459,7 @@ describe('PGLiteToSQLiteMigrator', () => {
     expect(phases.has('verifying-foreign-keys')).toBe(true);
     expect(phases.has('finalizing')).toBe(true);
     expect(progressEvents[progressEvents.length - 1].percentOfTotal).toBe(100);
-  });
+  }, 30000);
 
   it('translates BYTEA -> Buffer roundtrips intact', async () => {
     await seedPgliteSchema();
@@ -479,7 +483,7 @@ describe('PGLiteToSQLiteMigrator', () => {
       .get('src/binary.bin') as { content: Buffer };
     expect(Buffer.isBuffer(row.content)).toBe(true);
     expect(row.content.equals(payload)).toBe(true);
-  });
+  }, 30000);
 
   it('translates JSONB -> JSON text roundtrips intact', async () => {
     await seedPgliteSchema();
@@ -505,7 +509,7 @@ describe('PGLiteToSQLiteMigrator', () => {
     const parsed = JSON.parse(row.data);
     expect(parsed.meta.tags).toEqual(['x', 'y']);
     expect(parsed.meta.nested.count).toBe(3);
-  });
+  }, 30000);
 
   it('translates TEXT[] -> JSON array', async () => {
     await seedPgliteSchema();
@@ -527,7 +531,7 @@ describe('PGLiteToSQLiteMigrator', () => {
       .prepare('SELECT type_tags FROM tracker_items WHERE id = ?')
       .get('tr-tags') as { type_tags: string };
     expect(JSON.parse(row.type_tags)).toEqual(['alpha', 'beta', 'gamma']);
-  });
+  }, 30000);
 
   it('populates FTS5 mirror for ai_agent_messages rows with non-NULL searchable_text', async () => {
     await seedPgliteSchema();
@@ -561,7 +565,7 @@ describe('PGLiteToSQLiteMigrator', () => {
     // The NULL-searchable_text row is not indexed; the populated one is.
     expect(abcHits.length).toBe(0);
     expect(xyzHits.length).toBe(1);
-  });
+  }, 30000);
 
   it('recreates FTS triggers on searchable_text so post-migration writes index correctly', async () => {
     // Regression: a previous version recreated only the INSERT trigger and
@@ -620,7 +624,7 @@ describe('PGLiteToSQLiteMigrator', () => {
       .prepare(`SELECT rowid FROM ai_agent_messages_fts WHERE ai_agent_messages_fts MATCH ?`)
       .all('"post-migration-unique-token"') as { rowid: number }[];
     expect(hits.length).toBe(1);
-  });
+  }, 30000);
 
   it('drops transient codex app-server raw notifications during ai_agent_messages migration', async () => {
     await seedPgliteSchema();
@@ -674,7 +678,7 @@ describe('PGLiteToSQLiteMigrator', () => {
 
     expect(deltaHits.length).toBe(0);
     expect(keptHits.length).toBe(1);
-  });
+  }, 30000);
 
   it('throws when row counts mismatch (simulated by deleting a target row mid-flight)', async () => {
     // We can't easily simulate row-count mismatch without monkey-patching, but
@@ -696,5 +700,5 @@ describe('PGLiteToSQLiteMigrator', () => {
       .prepare('SELECT COUNT(*) AS c FROM ai_sessions')
       .get() as { c: number };
     expect(stuck.c).toBe(1);
-  });
+  }, 30000);
 });

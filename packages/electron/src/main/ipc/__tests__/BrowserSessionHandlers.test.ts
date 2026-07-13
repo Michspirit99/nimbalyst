@@ -6,20 +6,29 @@ import {
   getBrowserTranscriptImageDir,
 } from '../BrowserSessionHandlers';
 
+/**
+ * Normalize paths to forward slashes for cross-platform testing.
+ * Windows uses backslashes, tests expect Unix-style paths.
+ */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 describe('getBrowserTranscriptImageDir', () => {
   it('stores transcript screenshots under a durable .nimbalyst subdirectory', () => {
-    const workspacePath = path.join('/tmp', 'workspace');
+    // Use a path that survives path.resolve() on Windows (which prefixes with drive).
+    const workspacePath = path.resolve('/tmp/workspace');
 
-    expect(getBrowserTranscriptImageDir(workspacePath)).toBe(
-      path.join(workspacePath, '.nimbalyst', BROWSER_TRANSCRIPT_IMAGE_DIRNAME),
-    );
+    const result = normalizePath(getBrowserTranscriptImageDir(workspacePath));
+    const expectedSuffix = normalizePath(path.join(workspacePath, '.nimbalyst', BROWSER_TRANSCRIPT_IMAGE_DIRNAME));
+    expect(result).toBe(expectedSuffix);
   });
 
   it('normalizes the workspace path before joining the transcript image directory', () => {
-    const workspacePath = path.join('/tmp', 'workspace', '..', 'workspace', '.');
+    const workspacePath = path.resolve('/tmp/workspace/../workspace/.');
 
-    expect(getBrowserTranscriptImageDir(workspacePath)).toBe(
-      path.join('/tmp', 'workspace', '.nimbalyst', BROWSER_TRANSCRIPT_IMAGE_DIRNAME),
-    );
+    const result = normalizePath(getBrowserTranscriptImageDir(workspacePath));
+    const expectedSuffix = normalizePath(path.join(path.resolve('/tmp/workspace'), '.nimbalyst', BROWSER_TRANSCRIPT_IMAGE_DIRNAME));
+    expect(result).toBe(expectedSuffix);
   });
 });
