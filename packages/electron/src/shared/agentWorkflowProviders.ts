@@ -7,12 +7,14 @@ const WORKSPACE_SLASH_WORKFLOW_PROVIDERS = new Set([
   'openai-codex',
   'openai-codex-acp',
   'opencode',
+  'synthetic',
 ]);
 
 const CODEX_STYLE_WORKFLOW_PROVIDERS = new Set([
   'openai-codex',
   'openai-codex-acp',
   'opencode',
+  'synthetic',
 ]);
 
 export function supportsWorkspaceSlashWorkflowProvider(provider?: string | null): boolean {

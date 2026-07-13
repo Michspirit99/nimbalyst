@@ -14,6 +14,7 @@ export type SettingsCategory =
   | 'opencode'
   | 'copilot-cli'
   | 'lmstudio'
+  | 'synthetic'
   | 'notifications'
   | 'voice-mode'
   | 'sync'
@@ -210,6 +211,12 @@ Best for complex coding tasks.`,
           statusDot: getStatusDot('copilot-cli'),
           isAlpha: true,
         },
+        {
+          id: 'synthetic',
+          name: 'Synthetic.new',
+          icon: getProviderIcon('synthetic', { size: 16 }),
+          statusDot: getStatusDot('synthetic'),
+        },
         ...extAgentItems,
       ],
     },
@@ -238,6 +245,12 @@ Best for quick edits and tasks that do not require multi-file operations.`,
           name: 'LM Studio',
           icon: getProviderIcon('lmstudio', { size: 16 }),
           statusDot: getStatusDot('lmstudio'),
+        },
+        {
+          id: 'synthetic',
+          name: 'Synthetic.new',
+          icon: getProviderIcon('synthetic', { size: 16 }),
+          statusDot: getStatusDot('synthetic'),
         },
         // Extension agent providers (e.g. Gemini) are also surfaced under Chat
         // Providers per product request; selection routes through the same

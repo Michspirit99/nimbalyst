@@ -5,9 +5,11 @@ import {
 } from '../agentWorkflowProviders';
 
 describe('agentWorkflowProviders', () => {
-  it('supports workspace slash workflows for OpenCode sessions', () => {
+  it('supports workspace slash workflows for OpenCode and Synthetic sessions', () => {
     expect(supportsWorkspaceSlashWorkflowProvider('opencode')).toBe(true);
     expect(usesCodexStyleAgentWorkflows('opencode')).toBe(true);
+    expect(supportsWorkspaceSlashWorkflowProvider('synthetic')).toBe(true);
+    expect(usesCodexStyleAgentWorkflows('synthetic')).toBe(true);
   });
 
   it('keeps Claude Agent on the Claude-style workflow path', () => {

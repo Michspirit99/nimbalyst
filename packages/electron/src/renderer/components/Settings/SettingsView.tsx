@@ -15,6 +15,7 @@ import { OpenAICodexPanel } from '../GlobalSettings/panels/OpenAICodexPanel';
 import { OpenCodePanel } from '../GlobalSettings/panels/OpenCodePanel';
 import { CopilotCLIPanel } from '../GlobalSettings/panels/CopilotCLIPanel';
 import { LMStudioPanel } from '../GlobalSettings/panels/LMStudioPanel';
+import { SyntheticPanel } from '../GlobalSettings/panels/SyntheticPanel';
 import { AdvancedPanel } from '../GlobalSettings/panels/AdvancedPanel';
 import { DatabasePanel } from '../GlobalSettings/panels/DatabasePanel';
 import { AgentFeaturesPanel } from './AgentFeaturesPanel';
@@ -382,6 +383,7 @@ export function SettingsView({
     'opencode',
     'copilot-cli',
     'lmstudio',
+    'synthetic',
   ];
   const userCategories: SettingsCategory[] = [
     'claude-code',
@@ -391,6 +393,7 @@ export function SettingsView({
     'opencode',
     'copilot-cli',
     'lmstudio',
+    'synthetic',
     ...(developerMode ? (['github'] as SettingsCategory[]) : []),
     'sync',
     'shared-links',
@@ -888,6 +891,8 @@ export function SettingsView({
         return wrapWithOverride('copilot-cli', 'GitHub Copilot', <CopilotCLIPanel {...commonProps} />);
       case 'lmstudio':
         return wrapWithOverride('lmstudio', 'LM Studio', <LMStudioPanel {...commonProps} />);
+      case 'synthetic':
+        return wrapWithOverride('synthetic', 'Synthetic.new', <SyntheticPanel {...commonProps} />);
       case 'advanced':
         // AdvancedPanel is self-contained - uses Jotai atoms and IPC directly
         return <AdvancedPanel />;

@@ -20,16 +20,18 @@ These providers currently register through `packages/runtime/src/ai/server/Provi
 | `openai-codex-acp` | **OpenAI Codex (ACP)**. Hidden behind the experimental ACP toggle in the OpenAI Codex settings panel. | ACP over stdio via `CodexACPProtocol`. | Same auth story as Codex; optional API key. | Reuses Codex model catalog. | Experimental peer provider with native file-edit hooks and better diff attribution. |
 | `opencode` | **OpenCode**. Alpha settings panel. | OpenCode local server + SDK (`OpenCodeSDKProtocol`) over HTTP/SSE. | OpenCode's own config/auth model. | Preset model list plus user-configured providers/models from `opencode.json`. | Best fit when we want an open-source multi-model agent surface. |
 | `copilot-cli` | **GitHub Copilot**. Alpha settings panel. | ACP over stdio via `copilot --acp --stdio` and `CopilotACPProtocol`. | Existing Copilot CLI login. | Minimal fixed catalog (`copilot-cli:default`). | No separate API key flow; relies on CLI auth. |
+| `synthetic` | **Synthetic.new**. First-class settings panel. | Nimbalyst-owned OpenAI-compatible agent loop in `SyntheticProtocol` over Synthetic.new `/chat/completions`. | Stored Synthetic.new API key. | Dynamic discovery via `/openai/v1/models`, with safe built-in fallbacks. | Agent-capable hosted open-weight models. Built-in Nimbalyst tools plus URL-based MCP tools are exposed as OpenAI function tools; stdio MCP remains delegated to SDK-backed providers until Nimbalyst has a shared stdio MCP runtime. |
 
 ### Chat providers
 
-These providers still use `BaseAIProvider`, not `BaseAgentProvider`.
+Most chat providers use `BaseAIProvider`, not `BaseAgentProvider`. Synthetic.new is the exception: it is dual-mode. The same provider ID powers the agent loop and also appears in chat/model-provider surfaces because Synthetic.new exposes a normal OpenAI-compatible chat completions endpoint.
 
 | Provider ID | UI label | Transport style | Notes |
 | --- | --- | --- | --- |
 | `claude` | Claude Chat | Direct Anthropic SDK | Standard chat provider with tool calling but no MCP/file-agent loop. |
 | `openai` | OpenAI | Direct OpenAI SDK | Standard chat/completions path. |
 | `lmstudio` | LM Studio | Local OpenAI-compatible endpoint | Local-only chat provider. |
+| `synthetic` | Synthetic.new | OpenAI-compatible Synthetic.new endpoint via `SyntheticProtocol` | Dual-mode provider: remains agent-capable via `isAgentProvider()`, but is also selectable from chat/model-provider UI and extension chat completion APIs. |
 
 ## What Makes An Agent Provider Different
 
@@ -101,6 +103,7 @@ Current provider-to-parser mapping is:
 - `openai-codex-acp` -> `CodexACPRawParser`
 - `opencode` -> `OpenCodeRawParser`
 - `copilot-cli` -> `CopilotRawParser`
+- `synthetic` -> `SyntheticRawParser`
 
 If a new provider emits a new raw event shape, it needs a parser and parser registration. If it deliberately reuses an existing shape, document that and route it to the existing parser explicitly.
 

@@ -33,6 +33,7 @@ import { useDialog } from '../../contexts/DialogContext';
 import { FileGutter } from '../AIChat/FileGutter';
 import { recordClaudeActivity } from '../../store/listeners/claudeUsageListeners';
 import { recordCodexActivity } from '../../store/listeners/codexUsageListeners';
+import { recordSyntheticActivity } from '../../store/listeners/syntheticUsageListeners';
 import { PendingReviewBanner } from '../AIChat/PendingReviewBanner';
 import { WakeupBanner } from '../AIChat/WakeupBanner';
 import type { AIMode } from './ModeTag';
@@ -1293,6 +1294,8 @@ export const SessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscr
         recordClaudeActivity();
       } else if (provider === 'openai-codex') {
         recordCodexActivity();
+      } else if (provider === 'synthetic') {
+        recordSyntheticActivity();
       }
     } catch (error) {
       console.error('[SessionTranscript] Failed to send message:', error);

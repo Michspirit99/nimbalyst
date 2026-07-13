@@ -1526,6 +1526,13 @@ export class AIService {
       };
     }
 
+    if (request.provider === 'synthetic') {
+      return {
+        commands: ['compact'],
+        skills: [],
+      };
+    }
+
     if (supportsWorkspaceSlashWorkflowProvider(request.provider)) {
       return { commands: [], skills: [] };
     }
@@ -1799,6 +1806,11 @@ export class AIService {
             break;
           case 'lmstudio':
             // LMStudio doesn't need an API key, just the base URL
+            break;
+          case 'synthetic':
+            if (!apiKey) {
+              throw new Error('Synthetic.new API key not configured');
+            }
             break;
           default:
             throw new Error(`Unknown provider: ${provider}`);
@@ -2921,6 +2933,7 @@ export class AIService {
       const showUsageIndicator = this.getSettingsStore().get('showUsageIndicator', true) as boolean;
       const showCodexUsageIndicator = this.getSettingsStore().get('showCodexUsageIndicator', true) as boolean;
       const showGeminiUsageIndicator = this.getSettingsStore().get('showGeminiUsageIndicator', true) as boolean;
+      const showSyntheticUsageIndicator = this.getSettingsStore().get('showSyntheticUsageIndicator', true) as boolean;
       const customClaudeCodePath = this.getSettingsStore().get('customClaudeCodePath', '') as string;
       const autoCommitEnabled = this.getSettingsStore().get('autoCommitEnabled', false) as boolean;
       const trackerAutomation = this.getSettingsStore().get('trackerAutomation', {
@@ -2945,6 +2958,7 @@ export class AIService {
         showUsageIndicator,
         showCodexUsageIndicator,
         showGeminiUsageIndicator,
+        showSyntheticUsageIndicator,
         customClaudeCodePath,
         autoCommitEnabled,
         trackerAutomation,
@@ -3004,6 +3018,7 @@ export class AIService {
         writeApiKey('claude-code', settings.apiKeys['claude-code']);
         writeApiKey('openai', settings.apiKeys.openai);
         writeApiKey('openai-codex', settings.apiKeys['openai-codex']);
+        writeApiKey('synthetic', settings.apiKeys.synthetic);
         if (settings.apiKeys.lmstudio_url !== undefined) {
           // lmstudio_url is a regular setting -- no masking, just write it.
           safeSet('ai.apiKey.lmstudio_url', settings.apiKeys.lmstudio_url);
@@ -3043,6 +3058,7 @@ export class AIService {
       if (settings.showUsageIndicator !== undefined)       safeSet('ai.showUsageIndicator', settings.showUsageIndicator);
       if (settings.showCodexUsageIndicator !== undefined)  safeSet('ai.showCodexUsageIndicator', settings.showCodexUsageIndicator);
       if (settings.showGeminiUsageIndicator !== undefined) safeSet('ai.showGeminiUsageIndicator', settings.showGeminiUsageIndicator);
+      if (settings.showSyntheticUsageIndicator !== undefined) safeSet('ai.showSyntheticUsageIndicator', settings.showSyntheticUsageIndicator);
 
       if (settings.trackerAutomation !== undefined && typeof settings.trackerAutomation === 'object') {
         // Merge with current for partial updates (callers may send just the
@@ -3120,6 +3136,13 @@ export class AIService {
           case 'lmstudio':
             // LMStudio doesn't need an API key, just test the connection
             apiKey = 'not-required';
+            break;
+          case 'synthetic':
+            // Synthetic.new requires an API key
+            apiKey = apiKeys['synthetic'];
+            if (!apiKey) {
+              return { success: false, error: 'Synthetic.new API key not configured' };
+            }
             break;
           default:
             return { success: false, error: `Unknown provider: ${provider}` };
@@ -3294,6 +3317,14 @@ export class AIService {
           }
         }
 
+        // For Synthetic.new, test the endpoint by listing models
+        if (provider === 'synthetic') {
+          const models = await ModelRegistry.getModelsForProvider('synthetic', apiKey);
+          if (models.length === 0) {
+            throw new Error('Synthetic.new returned no models. Check your API key.');
+          }
+        }
+
         return { success: true, provider };
       } catch (error: any) {
         return { success: false, error: error.message };
@@ -3319,6 +3350,7 @@ export class AIService {
       if (providerSettings['openai-codex']?.enabled === true) enabledSet.add('openai-codex');
       if (providerSettings['opencode']?.enabled === true) enabledSet.add('opencode');
       if (providerSettings['lmstudio']?.enabled === true) enabledSet.add('lmstudio');
+      if (providerSettings['synthetic']?.enabled === true && !!apiKeys['synthetic']) enabledSet.add('synthetic');
 
       const modelsConfig = {
         ...apiKeys,
@@ -3483,6 +3515,11 @@ export class AIService {
           enabled: providerSettings['lmstudio']?.enabled === true,
           models: providerSettings['lmstudio']?.models,
           hiddenModels: providerSettings['lmstudio']?.hiddenModels
+        },
+        'synthetic': {
+          enabled: providerSettings['synthetic']?.enabled === true && !!apiKeys['synthetic'],
+          models: providerSettings['synthetic']?.models,
+          hiddenModels: providerSettings['synthetic']?.hiddenModels
         }
       };
 
@@ -3810,7 +3847,7 @@ export class AIService {
 
     // Extension SDK: List available chat models
     safeHandle('extensions:ai-list-models', async () => {
-      const CHAT_PROVIDERS: AIProviderType[] = ['claude', 'openai', 'lmstudio'];
+      const CHAT_PROVIDERS: AIProviderType[] = ['claude', 'openai', 'lmstudio', 'synthetic'];
       const providerSettings = this.getNormalizedProviderSettings() as any;
       const globalApiKeys = this.getSettingsStore().get('apiKeys', {}) as Record<string, string>;
 
@@ -4123,13 +4160,13 @@ export class AIService {
 
   /**
    * Resolve which chat provider and config to use for an extension completion request.
-   * Only chat providers (claude, openai, lmstudio) are supported.
+   * Only chat providers (claude, openai, lmstudio, synthetic) are supported.
    */
   private async resolveExtensionChatProvider(
     event: Electron.IpcMainInvokeEvent,
     options: { model?: string; maxTokens?: number; temperature?: number; responseFormat?: any }
   ): Promise<{ provider: AIProvider; providerConfig: ProviderConfig; providerType: AIProviderType; syntheticSessionId: string }> {
-    const CHAT_PROVIDERS: AIProviderType[] = ['claude', 'openai', 'lmstudio'];
+    const CHAT_PROVIDERS: AIProviderType[] = ['claude', 'openai', 'lmstudio', 'synthetic'];
 
     // Determine provider from model ID or find first available
     let providerType: AIProviderType | undefined;
@@ -4164,7 +4201,7 @@ export class AIService {
     }
 
     if (!providerType) {
-      throw new Error('No chat provider available. Enable Claude, OpenAI, or LM Studio in Settings > AI.');
+      throw new Error('No chat provider available. Enable Claude, OpenAI, LM Studio, or Synthetic.new in Settings > AI.');
     }
 
     // Get API key
