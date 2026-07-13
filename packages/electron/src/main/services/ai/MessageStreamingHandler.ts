@@ -1226,11 +1226,6 @@ export class MessageStreamingHandler {
         // Synthetic.new rejects it with 400 "URL must begin with https://huggingface.co".
         const freshApiKey = this.svc.getApiKeyForProvider(session.provider, effectiveWorkspacePath);
         const turnEffortLevel = resolveEffortLevel((session.metadata as any)?.effortLevel, getDefaultEffortLevel());
-
-        // Resolve the model the same way the pre-send refresh block above does:
-        // prefer the session's chosen model, else the provider default. Extract the
-        // provider-local id (strip the "synthetic:"/"openai:" prefix) so the raw id
-        // is what reaches the provider API.
         let turnModel: string | undefined;
         const turnFullModel = session.model || session.providerConfig?.model;
         if (turnFullModel) {
@@ -1249,13 +1244,21 @@ export class MessageStreamingHandler {
           }
         }
 
-        await provider.initialize({
+        const turnConfig: any = {
           apiKey: freshApiKey,
           model: turnModel,
           maxTokens: (session.providerConfig as any)?.maxTokens,
           temperature: (session.providerConfig as any)?.temperature,
           ...(turnEffortLevel && { effortLevel: turnEffortLevel }),
-        });
+        };
+        const fullTurnModel = session.model || session.providerConfig?.model;
+        if (fullTurnModel) {
+          const modelForProvider = extractModelForProvider(fullTurnModel, session.provider as AIProviderType);
+          if (modelForProvider !== null) {
+            turnConfig.model = modelForProvider;
+          }
+        }
+        await provider.initialize(turnConfig);
       }
 
       // Attach @ mentioned files for non-agent providers
