@@ -32,6 +32,7 @@ import { getPermissionService } from '../PermissionService';
 import { startClaudeCliProxyObservation, fireClaudeCliTurnCompletion } from './claudeCliObservationSingleton';
 import { flushNextClaudeCliQueuedPromptForSession } from './claudeCliQueueFlushSingleton';
 import { maybeAutoNameClaudeCliSessionProduction } from './claudeCliSessionAutoNameSingleton';
+import { reapSessionChildren } from '../ProviderProcessTreeManager';
 import type { ClaudeTurnState } from './claudeCliPidState';
 
 interface ClaudeCliLauncherConfig {
@@ -286,6 +287,9 @@ export async function ensureClaudeCliSession(
         onExit: (exitCode) => {
           console.log(`[ClaudeCliLauncher] Claude CLI exited for ${input.sessionId} with code ${exitCode}; ending AI session state`);
           void cliFileWatcher.stopForSession(input.sessionId).catch(() => {});
+          void reapSessionChildren(input.sessionId).catch((err) => {
+            console.warn('[ClaudeCliLauncher] Failed to reap provider child processes after CLI exit:', err);
+          });
           void stateManager.endSession(input.sessionId).catch((err) => {
             console.warn('[ClaudeCliLauncher] Failed to end session after CLI exit:', err);
           });
@@ -296,6 +300,7 @@ export async function ensureClaudeCliSession(
     } catch (error) {
       console.error('[ClaudeCliLauncher] Failed to ensure session:', error);
       // Roll the session back out of "running" so the UI doesn't spin forever.
+      void reapSessionChildren(input.sessionId).catch(() => {});
       void stateManager.endSession(input.sessionId).catch(() => {});
       return { success: false, error: String(error) };
     } finally {
