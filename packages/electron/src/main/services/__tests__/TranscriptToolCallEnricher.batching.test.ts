@@ -30,10 +30,16 @@ vi.mock('@nimbalyst/runtime', () => ({
   },
 }));
 
-const fsMock = vi.hoisted(() => ({ readFile: vi.fn() }));
-vi.mock('fs/promises', () => ({ readFile: fsMock.readFile, default: { readFile: fsMock.readFile } }));
+const fsMock = vi.hoisted(() => ({ readFile: vi.fn(), stat: vi.fn() }));
+vi.mock('fs/promises', () => ({
+  readFile: fsMock.readFile,
+  stat: fsMock.stat,
+  default: { readFile: fsMock.readFile, stat: fsMock.stat },
+}));
 
 import { enrichTranscriptMessagesWithToolCallDiffs } from '../TranscriptToolCallEnricher';
+import { MAX_HISTORY_DIFF_INPUT_BYTES } from '../ToolCallMatcher';
+import { measureEventLoop } from './startupDeadlockHarness';
 
 const SESSION_ID = 'session-batch';
 const BEFORE = gzipSync(Buffer.from('line1\nBEFORE\nline3\n'));
@@ -83,7 +89,9 @@ describe('enrichTranscriptMessagesWithToolCallDiffs batching', () => {
   beforeEach(() => {
     dbMock.query.mockReset();
     fsMock.readFile.mockReset();
+    fsMock.stat.mockReset();
     fsMock.readFile.mockResolvedValue('line1\nAFTER\nline3\n');
+    fsMock.stat.mockResolvedValue({ size: Buffer.byteLength('line1\nAFTER\nline3\n') });
     // Reset the ToolCallMatcher diff cache so counts are per-test.
     // (createSessionEnrichmentContext repopulates it.)
 
@@ -94,6 +102,63 @@ describe('enrichTranscriptMessagesWithToolCallDiffs batching', () => {
       if (/FROM document_history/.test(sql)) return { rows: preEditRows() };
       return { rows: [] };
     });
+  });
+
+  it('skips an oversized current file before reading it', async () => {
+    fsMock.stat.mockResolvedValue({ size: MAX_HISTORY_DIFF_INPUT_BYTES + 1 });
+
+    const [enriched] = await enrichTranscriptMessagesWithToolCallDiffs(
+      `${SESSION_ID}-oversized-current`,
+      [fileChangeMessage('tc-1', 1_000_000_000_100)],
+    );
+
+    expect(enriched.toolCall?.fileDiffs).toBeUndefined();
+    expect(fsMock.readFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects highly compressible snapshots when expanded content exceeds the limit', async () => {
+    const oversizedContent = 'x'.repeat(MAX_HISTORY_DIFF_INPUT_BYTES + 1);
+    const oversizedSnapshot = gzipSync(Buffer.from(oversizedContent));
+    fsMock.stat.mockResolvedValue({ size: 32 });
+    dbMock.query.mockImplementation(async (sql: string) => {
+      if (/workspace_id/.test(sql)) return { rows: [{ workspace_id: '/repo' }] };
+      if (/FROM ai_tool_call_file_edits/.test(sql)) return { rows: [] };
+      if (/FROM session_files/.test(sql)) return { rows: editedSessionFiles() };
+      if (/FROM document_history/.test(sql)) {
+        return {
+          rows: [{ file_path: '/repo/a.ts', content: oversizedSnapshot, metadata: { toolUseId: 'tc-1' }, tool_use_id: 'tc-1' }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const [enriched] = await enrichTranscriptMessagesWithToolCallDiffs(
+      `${SESSION_ID}-oversized-snapshot`,
+      [fileChangeMessage('tc-1', 1_000_000_000_100)],
+    );
+
+    expect(enriched.toolCall?.fileDiffs).toBeUndefined();
+  });
+
+  it('measures concurrent enrichment across multiple workspaces', async () => {
+    const messages = Array.from({ length: 10 }, (_, index) =>
+      fileChangeMessage(`benchmark-${index}`, 2_000_000_000_000 + index),
+    );
+
+    const { result, metrics } = await measureEventLoop(() =>
+      Promise.all(
+        Array.from({ length: 4 }, (_, workspaceIndex) =>
+          enrichTranscriptMessagesWithToolCallDiffs(
+            `${SESSION_ID}-benchmark-${workspaceIndex}`,
+            messages,
+          ),
+        ),
+      ),
+    );
+
+    expect(result).toHaveLength(4);
+    expect(metrics.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(metrics.maxHeartbeatDelayMs).toBeGreaterThanOrEqual(0);
   });
 
   it('resolves diffs with a bounded, per-session query count (no N+1 over tool calls)', async () => {

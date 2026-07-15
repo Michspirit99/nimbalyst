@@ -31,9 +31,24 @@ vi.mock('@nimbalyst/runtime/storage/repositories/TranscriptMigrationRepository',
 }));
 
 import { database } from '../../database/PGLiteDatabaseWorker';
-import { parseToolCallWindows, scoreMatch, scoreWorkspaceFileEdit, toolCallMatcher, type ToolCallWindow } from '../ToolCallMatcher';
+import {
+  isHistoryDiffTooLarge,
+  MAX_HISTORY_DIFF_INPUT_BYTES,
+  parseToolCallWindows,
+  scoreMatch,
+  scoreWorkspaceFileEdit,
+  toolCallMatcher,
+  type ToolCallWindow,
+} from '../ToolCallMatcher';
 
 describe('ToolCallMatcher', () => {
+  describe('history diff safety limits', () => {
+    it('allows inputs at the limit and rejects larger inputs', () => {
+      expect(isHistoryDiffTooLarge(MAX_HISTORY_DIFF_INPUT_BYTES)).toBe(false);
+      expect(isHistoryDiffTooLarge(MAX_HISTORY_DIFF_INPUT_BYTES + 1)).toBe(true);
+    });
+  });
+
   beforeEach(() => {
     (database.query as ReturnType<typeof vi.fn>).mockReset();
     mockGetMultiSessionEvents.mockReset();

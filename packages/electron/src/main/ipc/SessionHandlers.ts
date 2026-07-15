@@ -24,6 +24,7 @@ import {
     resolveGitCommitProposalPromptId,
 } from '../services/ai/gitCommitProposalPromptUtils';
 import { enrichTranscriptMessagesWithToolCallDiffs } from '../services/TranscriptToolCallEnricher';
+import { lookupSessionsForEditedFiles } from './SessionFileLookupService';
 import { setSessionPendingPrompt } from '../services/ai/pendingPromptPersistence';
 import { normalizeSessionPhaseMetadataUpdate } from '../services/session/sessionPhaseTransition';
 
@@ -137,22 +138,14 @@ async function getSessionsForUncommittedFiles(
         // Pick the most recent session per file_path. Rewritten from PG's
         // `SELECT DISTINCT ON (file_path) ... ORDER BY file_path, timestamp DESC`
         // to a window-function form that works under both PGLite and SQLite.
-        const { rows } = await database.query<{ session_id: string; file_path: string }>(
-            `SELECT session_id, file_path FROM (
-               SELECT session_id, file_path,
-                      ROW_NUMBER() OVER (PARTITION BY file_path ORDER BY timestamp DESC) AS rn
-               FROM session_files
-               WHERE workspace_id = $1
-                 AND link_type = 'edited'
-                 AND file_path = ANY($2::text[])
-             ) ranked WHERE rn = 1`,
-            [workspacePath, candidatePaths]
+        // Keep array bindings well below SQLite's host-parameter limit. The
+        // same query works for PGLite and SQLite, but a single large ANY array
+        // can still make SQLite reject the statement or monopolize the worker.
+        const fileToSession = await lookupSessionsForEditedFiles(
+            database,
+            workspacePath,
+            candidatePaths,
         );
-
-        const fileToSession = new Map<string, string>();
-        rows.forEach(row => {
-            fileToSession.set(row.file_path, row.session_id);
-        });
 
         sessionFilesCache.set(cacheKey, { fileToSession, timestamp: Date.now() });
         return fileToSession;
