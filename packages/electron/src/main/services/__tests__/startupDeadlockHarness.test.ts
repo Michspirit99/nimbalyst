@@ -11,8 +11,8 @@ describe('startup deadlock harness', () => {
     const ordinary = createDiffFixture('/repo/ordinary.ts', LARGE_DIFF_BYTES + 1);
     const compressible = createDiffFixture('/repo/compressible.ts', LARGE_DIFF_BYTES + 1, true);
 
-    expect(ordinary.current).toBeGreaterThan(LARGE_DIFF_BYTES);
-    expect(compressible.current).toBeGreaterThan(LARGE_DIFF_BYTES);
+    expect(ordinary.current.length).toBeGreaterThan(LARGE_DIFF_BYTES);
+    expect(compressible.current.length).toBeGreaterThan(LARGE_DIFF_BYTES);
     expect(compressible.snapshot.byteLength).toBeLessThan(compressible.current.length);
   });
 
