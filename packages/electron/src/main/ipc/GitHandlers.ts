@@ -13,7 +13,7 @@ import { gitOperationLock } from '../services/GitOperationLock';
 import { executeGitCommit } from '../services/GitCommitService';
 import { getGitSubprocessEnv, simpleGitWithHookEnv } from '../services/gitEnv';
 import { safeHandle } from '../utils/ipcRegistry';
-import { findGitRootForFile } from '../services/GitStatusService';
+import { findGitRootForFileInternal } from '../services/GitStatusService';
 import { isFileInWorkspaceOrWorktree } from '../utils/workspaceDetection';
 import {
   getGitOperationLogService,
@@ -85,10 +85,10 @@ export function normalizeBranchSelection(branch: string | null | undefined): str
   return isDetachedHeadState(normalized) ? 'HEAD' : normalized;
 }
 
-export function resolveGitDiffTarget(
+export async function resolveGitDiffTarget(
   workspacePath: string,
   filePath: string
-): { gitWorkspacePath: string; gitFilePath: string } {
+): Promise<{ gitWorkspacePath: string; gitFilePath: string }> {
   const resolvedWorkspacePath = resolve(workspacePath);
   const absoluteFilePath = isAbsolute(filePath)
     ? resolve(filePath)
@@ -99,7 +99,7 @@ export function resolveGitDiffTarget(
     : null;
   const gitWorkspacePath = relatedAbsolutePath
     ? findNearestGitRoot(relatedAbsolutePath) ?? resolvedWorkspacePath
-    : findGitRootForFile(filePath, resolvedWorkspacePath) ?? resolvedWorkspacePath;
+    : (await findGitRootForFileInternal(filePath, resolvedWorkspacePath)) ?? resolvedWorkspacePath;
 
   return {
     gitWorkspacePath,
@@ -836,7 +836,7 @@ export function registerGitHandlers(): void {
 
       const filePath = args.path;
       const group = args.group;
-      const { gitWorkspacePath, gitFilePath } = resolveGitDiffTarget(workspacePath, filePath);
+      const { gitWorkspacePath, gitFilePath } = await resolveGitDiffTarget(workspacePath, filePath);
       const git: SimpleGit = simpleGit(gitWorkspacePath);
       const repoHasCommits = await hasCommits(git);
 

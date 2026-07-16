@@ -1,8 +1,18 @@
 import { execSync } from 'child_process';
 import { existsSync, statSync } from 'fs';
+import * as fs from 'fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'path';
+import { LRUCache } from 'lru-cache';
 import { isGitAvailable, logEbadfDiagnostic } from '../utils/gitUtils';
 import { getAllFilesInDirectory } from '../utils/fileUtils';
+
+// Module-level cache for async git root lookups
+// Shared across all instances to provide global memoization
+// Cache is keyed by file path + boundary and expires after 1 minute
+export const gitRootCache = new LRUCache<string, string | null>({
+  max: 10_000,
+  ttl: 60_000, // 1 minute
+});
 
 export interface FileGitStatus {
   filePath: string;
@@ -66,12 +76,66 @@ export function findGitRootForFile(filePath: string, boundary: string): string |
 }
 
 /**
+ * Async version of findGitRootForFile with memoization.
+ * 
+* This is used internally in getFileStatus() instead of the
+* sync version to avoid blocking the main event loop during
+* concurrent file status queries.
+ * 
+* The async version uses LRUCache for memoization and
+* fs.promises.access() instead of existsSync() for
+* non-blocking filesystem operations.
+ */
+export async function findGitRootForFileInternal(filePath: string, boundary: string): Promise<string | null> {
+  const boundaryAbs = resolve(boundary);
+  const fileAbs = isAbsolute(filePath) ? filePath : resolve(boundaryAbs, filePath);
+  
+  const cacheKey = `${fileAbs}:${boundaryAbs}`;
+  
+  // Fast path: cache hit (no filesystem access at all)
+  const cached = gitRootCache.get(cacheKey);
+  if (cached !== undefined && cached !== null) {
+    return cached;
+  }
+  
+  let dir = dirname(fileAbs);
+  while (true) {
+    try {
+      await fs.promises.access(join(dir, '.git'));
+      const result = dir;
+      
+      // Cache result for future calls
+      gitRootCache.set(cacheKey, result);
+      return result;
+    } catch {
+      // .git doesn't exist, continue walking
+    }
+    
+    if (dir === boundaryAbs) break;
+    const parent = dirname(dir);
+    if (parent === dir) break; // hit filesystem root
+    dir = parent;
+  }
+  
+  // Not in boundary → null
+  gitRootCache.set(cacheKey, null);
+  return null;
+}
+
+/**
  * GitStatusService provides git status information for files.
  *
  * Inspired by Crystal's GitStatusManager, but simplified for our use case
  * of showing git status for edited files in the AgenticPanel.
  */
 export class GitStatusService {
+  // Cache for git root lookups - async, avoids blocking the event loop
+  // Uses LRUCache to prevent memory bloat while providing O(1) lookups
+  private rootCache = new LRUCache<string, string | null>({
+    max: 2000,
+    ttl: 60_000, // 1 minute
+  });
+  
   private cache: Map<string, { status: GitStatusResult; timestamp: number }> = new Map();
   private readonly CACHE_TTL_MS = 5000; // 5 seconds cache
 
@@ -106,7 +170,7 @@ export class GitStatusService {
     const filesByRoot = new Map<string, string[]>();
     const filesWithoutRoot: string[] = [];
     for (const filePath of filePaths) {
-      const root = findGitRootForFile(filePath, workspacePath);
+      const root = await findGitRootForFileInternal(filePath, workspacePath);
       if (!root) {
         filesWithoutRoot.push(filePath);
         continue;

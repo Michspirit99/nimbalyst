@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { findGitRootForFile } from '../GitStatusService';
+import { findGitRootForFile, findGitRootForFileInternal, gitRootCache } from '../GitStatusService';
 
 let tmpRoot: string;
 
@@ -121,5 +121,37 @@ describe('findGitRootForFile', () => {
     await touchFile(evilTwin);
 
     expect(findGitRootForFile(evilTwin, ws)).toBeNull();
+  });
+
+  it('async version caches git root lookups', async () => {
+    // The async version should cache results for fast repeated lookups.
+    const workspace = path.join(tmpRoot, 'ws');
+    await makeGitRepo(workspace);
+    const file = path.join(workspace, 'src', 'app.ts');
+    await touchFile(file);
+
+    // First call does filesystem check
+    const root1 = await findGitRootForFileInternal(file, workspace);
+    expect(root1).toBe(path.resolve(workspace));
+
+    // Second call should use cache (no filesystem check needed)
+    const root2 = await findGitRootForFileInternal(file, workspace);
+    expect(root2).toBe(root1);
+
+    // Different file should still query filesystem
+    const file2 = path.join(workspace, 'lib.ts');
+    await touchFile(file2);
+    const root3 = await findGitRootForFileInternal(file2, workspace);
+    expect(root3).toBe(path.resolve(workspace));
+  });
+
+  it('async version handles non-git scenarios', async () => {
+    const workspace = path.join(tmpRoot, 'nogit');
+    await mkdirp(workspace);
+    const file = path.join(workspace, 'notes.md');
+    await touchFile(file);
+
+    const root = await findGitRootForFileInternal(file, workspace);
+    expect(root).toBeNull();
   });
 });

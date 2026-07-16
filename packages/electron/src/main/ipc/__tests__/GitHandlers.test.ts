@@ -41,7 +41,7 @@ describe('resolveGitDiffTarget', () => {
     await mkdirp(path.dirname(filePath));
     await fs.writeFile(filePath, 'export {};\n');
 
-    expect(resolveGitDiffTarget(workspacePath, filePath)).toEqual({
+    expect(await resolveGitDiffTarget(workspacePath, filePath)).toEqual({
       gitWorkspacePath: workspacePath,
       gitFilePath: 'src/index.ts',
     });
@@ -56,7 +56,7 @@ describe('resolveGitDiffTarget', () => {
     await mkdirp(path.dirname(filePath));
     await fs.writeFile(filePath, 'export const widget = true;\n');
 
-    expect(resolveGitDiffTarget(workspacePath, filePath)).toEqual({
+    expect(await resolveGitDiffTarget(workspacePath, filePath)).toEqual({
       gitWorkspacePath: worktreePath,
       gitFilePath: 'packages/runtime/src/widget.tsx',
     });

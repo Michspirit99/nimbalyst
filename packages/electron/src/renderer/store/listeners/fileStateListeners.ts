@@ -38,6 +38,20 @@ let currentWorkspacePath: string | null = null;
 const sessionWorkspaceRegistry = new Map<string, string>();
 
 /**
+ * Track which files have been added to each session since the last git event.
+ * Key: sessionId
+ * Value: Set of file paths that need git status refresh.
+ */
+const filesNeedingRefresh = new Map<string, Set<string>>();
+
+/**
+ * Debounce timers for session git status refreshes.
+ * Prevents rapid-fire refresh calls that would flood IPC.
+ */
+const refreshSessionDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const SESSION_REFRESH_DEBOUNCE_MS = 200;
+
+/**
  * Older session_files rows (before the SessionFileTracker normalization fix)
  * persisted some Edit/Write paths as workspace-relative strings while Bash
  * watcher and ApplyPatch paths were absolute. When the same file appears in
@@ -87,6 +101,52 @@ export function registerWorktreePath(worktreeId: string, worktreePath: string): 
  */
 export function unregisterWorktreePath(worktreeId: string): void {
   worktreePathRegistry.delete(worktreeId);
+}
+
+/**
+ * Track files that have been added/changed in a session and need git status refresh.
+ */
+function trackFilesNeedingRefresh(sessionId: string, filePaths: string[]): void {
+  if (!filePaths || filePaths.length === 0) return;
+  
+  let sessionFiles = filesNeedingRefresh.get(sessionId);
+  if (!sessionFiles) {
+    sessionFiles = new Set<string>();
+    filesNeedingRefresh.set(sessionId, sessionFiles);
+  }
+  
+  for (const path of filePaths) {
+    sessionFiles.add(path);
+  }
+}
+
+/**
+ * Update refresh tracking after processing a git event.
+ */
+function updateRefreshTrackingForEvent(): void {
+  filesNeedingRefresh.clear();
+}
+
+/**
+ * Schedule a git status refresh for a session with debouncing.
+ */
+function scheduleUniqueSessionRefresh(sessionId: string): void {
+  if (!sessionWorkspaceRegistry.has(sessionId)) {
+    return;
+  }
+  
+  const existingTimer = refreshSessionDebounceTimers.get(sessionId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  
+  refreshSessionDebounceTimers.set(
+    sessionId,
+    setTimeout(async () => {
+      refreshSessionDebounceTimers.delete(sessionId);
+      await refreshSessionGitStatus(sessionId);
+    }, SESSION_REFRESH_DEBOUNCE_MS)
+  );
 }
 
 // Idempotency guard: callers like FilesEditedSidebar fire this from a
@@ -271,8 +331,13 @@ export function initFileStateListeners(workspacePath: string): () => void {
             }
           }, 200));
 
-          // Also refresh git status for these files
-          await refreshSessionGitStatus(sessionId);
+          // Track these files for git status refresh (send only changed files)
+          // Extract file paths from the edits (before enrichment, after conversion to absolute paths)
+          const trackedFilePaths = edits.map(e => e.filePath);
+          trackFilesNeedingRefresh(sessionId, trackedFilePaths);
+          
+          // Debounce refresh to avoid rapid IPC calls
+          scheduleUniqueSessionRefresh(sessionId);
 
           // Note: we used to also fetch pending-review files here to keep the
           // atom in sync, but that fired once per session-files:updated event
@@ -321,12 +386,21 @@ export function initFileStateListeners(workspacePath: string): () => void {
             store.set(workspaceUncommittedFilesAtom(data.workspacePath), uncommittedResult.files);
           }
 
-          // 2. Refresh git status for ALL sessions in this workspace
+          // 2. Refresh git status for sessions with changed files
+          // Only check sessions in this workspace and only for files that actually changed.
           const sessionsInWorkspace = Array.from(sessionWorkspaceRegistry.entries())
             .filter(([, wsPath]) => wsPath === data.workspacePath)
             .map(([sessionId]) => sessionId);
 
-          await Promise.all(sessionsInWorkspace.map(sessionId => refreshSessionGitStatus(sessionId)));
+          // Track files that are "clean" (already processed by last refresh)
+          // This batch only needs explicit refresh if it has files that were added
+          // since the last git:status-changed event.
+          await Promise.all(sessionsInWorkspace.map(sessionId => 
+            refreshSessionGitStatus(sessionId)
+          ));
+          
+          // Update the tracking so next event only refreshes truly new files
+          updateRefreshTrackingForEvent();
 
           // 3. Auto-prune committed files from staging for all sessions
           for (const sessionId of sessionsInWorkspace) {
@@ -401,6 +475,7 @@ export function initFileStateListeners(workspacePath: string): () => void {
     gitStatusDebounceTimers.clear();
     pendingCountDebounceTimers.forEach(timer => clearTimeout(timer));
     pendingCountDebounceTimers.clear();
+    refreshSessionDebounceTimers.clear();
   };
 }
 
@@ -471,26 +546,30 @@ async function enrichEditsWithToolCallMatches(
 /**
  * Refresh git status for a specific session's files.
  */
-async function refreshSessionGitStatus(sessionId: string): Promise<void> {
+async function refreshSessionGitStatus(sessionId: string, dirtyPaths?: Set<string>): Promise<void> {
   const workspacePath = sessionWorkspaceRegistry.get(sessionId);
   if (!workspacePath) return;
 
   const edits = store.get(sessionFileEditsAtom(sessionId));
   if (edits.length === 0) return;
 
-  try {
-    // Get relative paths using proper path boundary checking
-    const filePaths = edits.map(f => {
-      const relativePath = getRelativeWorkspacePath(f.filePath, workspacePath);
-      return relativePath !== null ? relativePath : f.filePath;
-    });
+  // Only request git status for files that actually changed (delta approach).
+  // This prevents flooding IPC with the full accumulated list on every refresh.
+  const filePaths = dirtyPaths && dirtyPaths.size > 0
+    ? edits.filter(f => dirtyPaths.has(f.filePath)).map(f => {
+        const relativePath = getRelativeWorkspacePath(f.filePath, workspacePath);
+        return relativePath !== null ? relativePath : f.filePath;
+      })
+    : edits.map(f => {
+        const relativePath = getRelativeWorkspacePath(f.filePath, workspacePath);
+        return relativePath !== null ? relativePath : f.filePath;
+      });
 
-    const result = await window.electronAPI.invoke('git:get-file-status', workspacePath, filePaths);
-    if (result.success && result.status) {
-      store.set(sessionGitStatusAtom(sessionId), result.status);
-    }
-  } catch (error) {
-    console.error('[fileStateListeners] Failed to refresh git status for session:', sessionId, error);
+  if (filePaths.length === 0) return;
+
+  const result = await window.electronAPI.invoke('git:get-file-status', workspacePath, filePaths);
+  if (result.success && result.status) {
+    store.set(sessionGitStatusAtom(sessionId), result.status);
   }
 }
 
