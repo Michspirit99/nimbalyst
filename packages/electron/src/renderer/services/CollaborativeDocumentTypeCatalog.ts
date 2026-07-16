@@ -8,10 +8,15 @@ import type {
   NewFileMenuContribution,
 } from '@nimbalyst/extension-sdk';
 import {
+  getCollabContentAdapter,
   listRegisteredCollabContentAdapters,
   onCollabContentAdaptersChange,
+  registerCollabContentAdapter,
 } from '@nimbalyst/collab-adapters';
-import { MONACO_TEXT_FILE_EXTENSIONS } from '../utils/fileTypeDetector';
+import {
+  CODE_COLLAB_FILE_EXTENSIONS,
+  CodeCollabContentAdapter,
+} from '../utils/CodeCollabContentAdapter';
 
 export interface CollaborativeDocumentTypeDescriptor {
   documentType: string;
@@ -91,9 +96,7 @@ interface CatalogState {
 }
 
 const MARKDOWN_EXTENSIONS = ['.markdown', '.md'];
-const CODE_EXTENSIONS = MONACO_TEXT_FILE_EXTENSIONS.filter(
-  suffix => suffix !== '.md' && suffix !== '.markdown' && suffix !== '.mdc',
-);
+const CODE_EXTENSIONS = CODE_COLLAB_FILE_EXTENSIONS;
 
 function normalizeSuffix(value: string): string | null {
   const trimmed = value.trim().toLowerCase();
@@ -186,13 +189,20 @@ function defaultExtensionSource(): CollaborativeCatalogExtensionSource {
 }
 
 function defaultCodecSource(includeBuiltinMarkdownCodec: boolean): CollaborativeCatalogCodecSource {
+  if (!getCollabContentAdapter('code')) {
+    registerCollabContentAdapter(CodeCollabContentAdapter);
+  }
   return {
     list: () => {
       const registered = listRegisteredCollabContentAdapters();
-      if (!includeBuiltinMarkdownCodec || registered.some(codec => codec.documentType === 'markdown')) {
-        return registered;
+      const builtins: CollabCodec[] = [];
+      if (includeBuiltinMarkdownCodec && !registered.some(codec => codec.documentType === 'markdown')) {
+        builtins.push(MarkdownCollabContentAdapter);
       }
-      return [MarkdownCollabContentAdapter, ...registered];
+      if (!registered.some(codec => codec.documentType === 'code')) {
+        builtins.push(CodeCollabContentAdapter);
+      }
+      return [...builtins, ...registered];
     },
     subscribe: listener => onCollabContentAdaptersChange(listener),
   };
@@ -200,7 +210,8 @@ function defaultCodecSource(includeBuiltinMarkdownCodec: boolean): Collaborative
 
 /**
  * Live renderer projection over built-ins, extension contributions, and the
- * CollabCodec registry. It owns no extension or codec registrations itself.
+ * CollabCodec registry. It ensures the host-shipped code codec is registered,
+ * but owns no extension registrations.
  */
 export class CollaborativeDocumentTypeCatalog {
   private readonly extensionSource: CollaborativeCatalogExtensionSource;
@@ -593,7 +604,7 @@ export class CollaborativeDocumentTypeCatalog {
 let catalogSingleton: CollaborativeDocumentTypeCatalog | null = null;
 
 export function getCollaborativeDocumentTypeCatalog(): CollaborativeDocumentTypeCatalog {
-  catalogSingleton ??= new CollaborativeDocumentTypeCatalog();
+  catalogSingleton ??= new CollaborativeDocumentTypeCatalog({ monacoBindingAvailable: true });
   return catalogSingleton;
 }
 

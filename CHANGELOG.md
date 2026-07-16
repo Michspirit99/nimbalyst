@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Text and code files such as TypeScript, HTML, Swift, and Python can now be shared and co-edited with live cursors.
 - Tracker items and other sessions mentioned in the chat transcript are now clickable, opening the item or session directly.
 - Cmd+O file search now finds team shared files and opens them collaboratively.
 - Shared document and folder creation now lets you choose any shared folder or Root as the destination.

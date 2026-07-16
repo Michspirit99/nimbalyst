@@ -293,11 +293,43 @@ describe('CollaborativeDocumentTypeCatalog', () => {
       state: 'unsupported',
       reason: 'No collaborative codec is registered for document type "codec".',
     });
-    expect(catalog.resolveShareability('x.ts')).toMatchObject({
-      state: 'unsupported',
-      reason: 'The built-in Monaco editor does not yet provide a collaborative binding for ".ts".',
-    });
     catalog.dispose();
+  });
+
+  it('resolves built-in Monaco files as ready and retains missing-codec diagnostics', () => {
+    const extensions = new MutableExtensionSource();
+    const readyCatalog = makeCatalog(
+      extensions,
+      new MutableCodecSource([
+        codec('markdown', ['.md']),
+        codec('code', ['.ts', '.d.ts']),
+      ]),
+      true,
+    );
+
+    const result = readyCatalog.resolveShareability('x.ts');
+    expect(result).toMatchObject({
+      state: 'ready',
+      descriptor: {
+        documentType: 'code',
+        editor: { kind: 'monaco' },
+      },
+    });
+    expect(result.state === 'ready' && readyCatalog.editorIdForDescriptor(result.descriptor))
+      .toBe('builtin.monaco');
+    expect(readyCatalog.inferFileExtension('code', 'x.ts')).toBe('.ts');
+    readyCatalog.dispose();
+
+    const missingCodecCatalog = makeCatalog(
+      extensions,
+      new MutableCodecSource([codec('markdown', ['.md'])]),
+      true,
+    );
+    expect(missingCodecCatalog.resolveShareability('x.ts')).toMatchObject({
+      state: 'unsupported',
+      reason: 'No collaborative codec is registered for document type "code".',
+    });
+    missingCodecCatalog.dispose();
   });
 
   it('excludes openVirtualTab contributions from persistent shared creation', () => {

@@ -32,7 +32,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
-import { MarkdownEditor, DocumentPathProvider } from '@nimbalyst/runtime';
+import { MarkdownEditor, MonacoEditor, DocumentPathProvider } from '@nimbalyst/runtime';
 import { $convertFromEnhancedMarkdownString, getEditorTransformers, type CommentsConfig } from '@nimbalyst/runtime/editor';
 import {
   getTeamSyncProvider,
@@ -107,6 +107,8 @@ import {
   notifyCollabStatus,
 } from './collabExtensionHost';
 import { hasCollabReplicaPreloadSupport } from '../../store/listeners/collabReplicaListeners';
+import { getCollaborativeDocumentTypeCatalog } from '../../services/CollaborativeDocumentTypeCatalog';
+import { getCodeCollabExportFileName } from '../../utils/CodeCollabContentAdapter';
 
 interface CollaborativeTabEditorProps {
   /** The collab:// URI for this document */
@@ -1083,7 +1085,7 @@ export const CollaborativeTabEditor: React.FC<CollaborativeTabEditorProps> = ({
   // ---- Branch selection ---------------------------------------------------
   const documentType = activeConfig.documentType ?? 'markdown';
   const extensionRegistration: CustomEditorRegistration | null = useMemo(() => {
-    if (documentType === 'markdown') return null;
+    if (documentType === 'markdown' || documentType === 'code') return null;
     // Look up by the share filename, which carries the extension (e.g.
     // `MyDrawing.excalidraw`). Falls back to `<title>.<documentType>` so
     // recipients of a doc shared with a bare title still get routed to
@@ -1151,9 +1153,50 @@ export const CollaborativeTabEditor: React.FC<CollaborativeTabEditorProps> = ({
     void localOrigin.reuploadFromLocalSource();
   }, [documentType, activeConfig, localOrigin]);
 
-  const localOriginActionItems = useMemo(() => {
+  const handleSaveCodeCopy = useCallback(async (): Promise<void> => {
+    const provider = syncProviderRef.current;
+    const adapter = getCollabContentAdapter('code');
+    if (!provider || !adapter) {
+      errorNotificationService.showError(
+        'Could not save a copy',
+        'The collaborative code exporter is unavailable.',
+      );
+      return;
+    }
+
+    const preferredSuffix = activeConfig.fileExtension || adapter.fileExtensions[0] || '.txt';
+    const defaultFileName = getCodeCollabExportFileName(
+      activeConfig.title || fileName || 'document',
+      activeConfig.fileExtension,
+    );
+    const content = adapter.exportToFile(provider.getYDoc());
+    const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content;
+    const result = await window.electronAPI.invoke('document-sync:export-to-file', {
+      documentType: 'code',
+      defaultFileName,
+      fileExtensions: Array.from(new Set([preferredSuffix, ...adapter.fileExtensions])),
+      bytes,
+    }) as { success: boolean; cancelled?: boolean; error?: string };
+
+    if (!result.success && !result.cancelled) {
+      errorNotificationService.showError(
+        'Could not save a copy',
+        result.error ?? 'The file could not be exported.',
+      );
+    }
+  }, [activeConfig.fileExtension, activeConfig.title, fileName]);
+
+  const collabActionItems = useMemo(() => {
     const actionDisabled = localOrigin.busyAction !== null;
     return [
+      ...(documentType === 'code' ? [{
+        label: 'Save a Copy',
+        icon: 'download',
+        disabled: !hasHydrated,
+        onClick: () => {
+          void handleSaveCodeCopy();
+        },
+      }] : []),
       {
         label: 'Open Local',
         icon: 'folder_open',
@@ -1187,7 +1230,7 @@ export const CollaborativeTabEditor: React.FC<CollaborativeTabEditorProps> = ({
         },
       },
     ];
-  }, [localOrigin, handleReuploadFromLocal]);
+  }, [documentType, handleSaveCodeCopy, hasHydrated, localOrigin, handleReuploadFromLocal]);
   const handleLexicalEditorReady = useCallback((editor: any) => {
     setLexicalEditor((prev: any) => (prev === editor ? prev : editor));
     lexicalEditorRef.current = editor ?? null;
@@ -1323,7 +1366,7 @@ export const CollaborativeTabEditor: React.FC<CollaborativeTabEditorProps> = ({
           documentId: activeConfig.documentId,
           orgId: activeConfig.orgId,
         }}
-        extraActionItems={localOriginActionItems}
+        extraActionItems={collabActionItems}
       />
 
       <CollabRecoveryBanner
@@ -1371,6 +1414,23 @@ export const CollaborativeTabEditor: React.FC<CollaborativeTabEditorProps> = ({
               />
             </div>
           </DocumentPathProvider>
+        ) : documentType === 'code' && syncProviderRef.current ? (
+          <MonacoCollabBranch
+            key={providerEpoch}
+            syncProvider={syncProviderRef.current}
+            filePath={filePath}
+            fileName={fileName}
+            isActive={isActive}
+            activeConfig={activeConfig}
+            createHistoryClient={createHistoryClient}
+            onHistoryControllerChange={(controller) => {
+              historyControllerRef.current = controller;
+              if (controller?.exportSnapshot) {
+                void ensureBootstrapRevision();
+              }
+            }}
+            onDirtyChange={onDirtyChange}
+          />
         ) : extensionRegistration && syncProviderRef.current ? (
           <ExtensionCollabBranch
             key={providerEpoch}
@@ -1396,6 +1456,158 @@ export const CollaborativeTabEditor: React.FC<CollaborativeTabEditorProps> = ({
         )}
       </div>
     </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Built-in Monaco branch (text/code)
+// ---------------------------------------------------------------------------
+
+interface MonacoCollabBranchProps {
+  syncProvider: DocumentSyncProvider;
+  filePath: string;
+  fileName: string;
+  isActive: boolean;
+  activeConfig: CollabDocumentConfig;
+  createHistoryClient: () => CollabHistoryClient;
+  onHistoryControllerChange: (controller: CollabHistoryController | null) => void;
+  onDirtyChange?: (isDirty: boolean) => void;
+}
+
+const MonacoCollabBranch: React.FC<MonacoCollabBranchProps> = ({
+  syncProvider,
+  filePath,
+  fileName,
+  isActive,
+  activeConfig,
+  createHistoryClient,
+  onHistoryControllerChange,
+  onDirtyChange,
+}) => {
+  const setHistoryDialogFile = useSetAtom(historyDialogFileAtom);
+  const bumpHistoryControllers = useSetAtom(collabHistoryControllerBumpAtom);
+  const unregisterControllerRef = useRef<(() => void) | null>(null);
+
+  const syntheticName = useMemo(() => {
+    const catalog = getCollaborativeDocumentTypeCatalog();
+    const suffix = activeConfig.fileExtension
+      ?? catalog.inferFileExtension('code', fileName)
+      ?? catalog.inferFileExtension('code', activeConfig.title)
+      ?? '.txt';
+    return `document${suffix}`;
+  }, [activeConfig.fileExtension, activeConfig.title, fileName]);
+
+  const bridgeRef = useRef<ReturnType<typeof createExtensionAwarenessBridge> | null>(null);
+  if (!bridgeRef.current) {
+    bridgeRef.current = createExtensionAwarenessBridge({
+      syncProvider,
+      yDoc: syncProvider.getYDoc(),
+      user: {
+        id: activeConfig.userId,
+        name: activeConfig.userName ?? activeConfig.userId,
+        color: '#3A8FD6',
+      },
+    });
+  }
+  useEffect(() => {
+    return () => {
+      bridgeRef.current?.destroy();
+      bridgeRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    void syncProvider.connect().catch((error) => {
+      console.error('[MonacoCollabBranch] Failed to connect DocumentSyncProvider:', {
+        documentId: activeConfig.documentId,
+        error,
+      });
+    });
+  }, [syncProvider, activeConfig.documentId]);
+
+  const collaboration = useMemo(
+    () => createCollaborationContext({
+      syncProvider,
+      awareness: bridgeRef.current!.awareness,
+      activeConfig,
+    }),
+    [activeConfig, syncProvider],
+  );
+
+  useEffect(() => {
+    const adapter = createRevisionAdapterFromCollabContent({
+      documentType: 'code',
+      getYDoc: () => syncProvider.getYDoc(),
+    });
+    const controller: CollabHistoryController = {
+      client: createHistoryClient(),
+      editorType: 'code',
+      contentFormat: adapter?.contentFormat ?? 'code',
+      previewKind: adapter?.previewKind ?? 'metadata-only',
+      exportSnapshot: adapter ? () => adapter.exportRevisionSnapshot() : undefined,
+      applySnapshot: adapter ? (bytes) => adapter.restoreRevisionSnapshot(bytes) : undefined,
+      getBasisSequence: () => syncProvider.getLastSeq(),
+      getStatus: () => syncProvider.getStatus(),
+      waitForPendingWrites: (timeoutMs?: number) => syncProvider.waitForPendingWrites(timeoutMs),
+    };
+
+    onHistoryControllerChange(controller);
+    unregisterControllerRef.current = registerCollabHistoryController(
+      filePath,
+      controller,
+      () => bumpHistoryControllers(),
+    );
+
+    return () => {
+      onHistoryControllerChange(null);
+      unregisterControllerRef.current?.();
+      unregisterControllerRef.current = null;
+    };
+  }, [bumpHistoryControllers, createHistoryClient, filePath, onHistoryControllerChange, syncProvider]);
+
+  const themeChangeCallbackRef = useRef<((theme: string) => void) | null>(null);
+  useEffect(() => {
+    const unsubscribe = store.sub(themeIdAtom, () => {
+      const next = store.get(themeIdAtom);
+      themeChangeCallbackRef.current?.(next);
+    });
+    return unsubscribe;
+  }, []);
+
+  const hostWithCollaboration = useMemo(
+    () => createCollabExtensionHost({
+      filePath,
+      fileName,
+      isActive,
+      workspaceId: activeConfig.workspacePath,
+      activeConfig,
+      collaboration,
+      onDirtyChange,
+      onOpenHistory: () => setHistoryDialogFile(filePath),
+      getTheme: () => store.get(themeIdAtom),
+      subscribeToThemeChanges: (callback) => {
+        themeChangeCallbackRef.current = callback;
+        return () => {
+          if (themeChangeCallbackRef.current === callback) {
+            themeChangeCallbackRef.current = null;
+          }
+        };
+      },
+    }),
+    [activeConfig, collaboration, fileName, filePath, isActive, onDirtyChange, setHistoryDialogFile],
+  );
+
+  return (
+    <DocumentPathProvider documentPath={filePath}>
+      <div className="monaco-collab-branch" style={{ flex: 1, overflow: 'hidden' }}>
+        <MonacoEditor
+          host={hostWithCollaboration}
+          fileName={syntheticName}
+          config={{ isActive }}
+          collab={{ textField: 'content' }}
+        />
+      </div>
+    </DocumentPathProvider>
   );
 };
 
