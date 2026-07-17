@@ -10,6 +10,7 @@
  * shared with the list via the `useTrackerRows` hook.
  */
 
+import type { JSX } from 'react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FloatingPortal } from '@floating-ui/react';
 import { useAtomValue } from 'jotai';
@@ -40,6 +41,7 @@ import { DisplayOptionsPanel } from './DisplayOptionsPanel';
 import { useTrackerRows } from './useTrackerRows';
 import { renderCell, ContextSubmenu } from './TrackerTable';
 import type { SortColumn, SortDirection } from './TrackerTable';
+import { TrackerFavoriteStar } from './TrackerFavoriteStar';
 
 interface TrackerTableGridProps {
   filterType?: TrackerItemType | 'all';
@@ -60,6 +62,9 @@ interface TrackerTableGridProps {
   onClearFilters?: () => void;
   columnConfig?: TypeColumnConfig;
   onColumnConfigChange?: (config: TypeColumnConfig) => void;
+  favoriteItemIds?: ReadonlySet<string>;
+  onToggleFavorite?: (itemId: string) => void;
+  preserveItemOrder?: boolean;
 }
 
 /** Default minimum width for a column without an explicit minWidth. */
@@ -85,6 +90,9 @@ export function TrackerTableGrid({
   onClearFilters,
   columnConfig: externalColumnConfig,
   onColumnConfigChange,
+  favoriteItemIds = new Set<string>(),
+  onToggleFavorite,
+  preserveItemOrder = false,
 }: TrackerTableGridProps): JSX.Element {
   const activeTypeFilter: TrackerItemType | 'all' = filterType;
   const [showDisplayOptions, setShowDisplayOptions] = useState(false);
@@ -145,6 +153,7 @@ export function TrackerTableGrid({
 
   // Sort
   const sortedItems = useMemo(() => {
+    if (preserveItemOrder) return filteredItems;
     const sorted = [...filteredItems].sort((a, b) => {
       let compareValue = 0;
       switch (currentSortBy) {
@@ -175,7 +184,7 @@ export function TrackerTableGrid({
       return currentSortDirection === 'asc' ? compareValue : -compareValue;
     });
     return sorted;
-  }, [filteredItems, currentSortBy, currentSortDirection]);
+  }, [filteredItems, currentSortBy, currentSortDirection, preserveItemOrder]);
 
   // Row interaction (shared with TrackerTable)
   const rows = useTrackerRows({
@@ -445,6 +454,8 @@ export function TrackerTableGrid({
                 handleRowClick={handleRowClick}
                 handleContextMenu={handleContextMenu}
                 openItemInEditor={openItemInEditor}
+                favoriteItemIds={favoriteItemIds}
+                onToggleFavorite={onToggleFavorite}
               />
             ))}
           </div>
@@ -583,12 +594,14 @@ interface GridRowProps {
   setEditingCell: (cell: { itemId: string; field: 'status' | 'priority' | 'title' } | null) => void;
   editingTitle: string;
   setEditingTitle: (t: string) => void;
-  titleInputRef: React.RefObject<HTMLInputElement>;
+  titleInputRef: React.RefObject<HTMLInputElement | null>;
   handleFieldUpdate: (item: TrackerRecord, field: string, value: string) => Promise<void>;
   isItemEditable: (item: TrackerRecord) => boolean;
   handleRowClick: (item: TrackerRecord, index: number, e: React.MouseEvent) => void;
   handleContextMenu: (e: React.MouseEvent, item: TrackerRecord, index: number) => void;
   openItemInEditor: (item: TrackerRecord) => void;
+  favoriteItemIds: ReadonlySet<string>;
+  onToggleFavorite?: (itemId: string) => void;
 }
 
 function GridRow({
@@ -608,6 +621,8 @@ function GridRow({
   handleRowClick,
   handleContextMenu,
   openItemInEditor,
+  favoriteItemIds,
+  onToggleFavorite,
 }: GridRowProps): JSX.Element {
   const isSelected = selectedIds.has(item.id) || (!!selectedItemId && item.id === selectedItemId);
   const isFocused = focusedIndex === rowIndex;
@@ -640,6 +655,13 @@ function GridRow({
               {getTypeIcon(item.primaryType)}
             </span>
           </span>
+        ) : col.id === 'title' ? (
+          <div className="flex items-center gap-1 min-w-0">
+            <TrackerFavoriteStar itemId={item.id} isFavorite={favoriteItemIds.has(item.id)} onToggle={onToggleFavorite} />
+            <div className="min-w-0 flex-1 truncate">
+              {renderCell(col, item, value, editingCell, isItemEditable, setEditingCell, editingTitle, setEditingTitle, titleInputRef, handleFieldUpdate)}
+            </div>
+          </div>
         ) : (
           renderCell(col, item, value, editingCell, isItemEditable, setEditingCell, editingTitle, setEditingTitle, titleInputRef, handleFieldUpdate)
         );
