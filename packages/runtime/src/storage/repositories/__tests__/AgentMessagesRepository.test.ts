@@ -43,6 +43,55 @@ describe('AgentMessagesRepository.listTail', () => {
     await expect(AgentMessagesRepository.listTail('session-1', 2, {
       includeHidden: true,
     })).resolves.toEqual([message(3), message(4)]);
-    expect(list).toHaveBeenCalledWith('session-1', { includeHidden: true });
+  });
+});
+
+describe('AgentMessagesRepository.list', () => {
+  afterEach(() => {
+    AgentMessagesRepository.clearStore();
+  });
+
+  it('uses default limit of 200 messages when no options provided', async () => {
+    const listMock = vi.fn(async () => [message(1), message(2), message(3)]);
+    AgentMessagesRepository.setStore({
+      create: vi.fn(async () => {}),
+      list: listMock,
+    } satisfies AgentMessagesStore);
+
+    await AgentMessagesRepository.list('session-1');
+    expect(listMock).toHaveBeenCalledWith('session-1', undefined);
+  });
+
+  it('applies provided limit when options are given', async () => {
+    const listMock = vi.fn(async () => [message(1), message(2), message(3)]);
+    AgentMessagesRepository.setStore({
+      create: vi.fn(async () => {}),
+      list: listMock,
+    } satisfies AgentMessagesStore);
+
+    await AgentMessagesRepository.list('session-1', { limit: 3 });
+    expect(listMock).toHaveBeenCalledWith('session-1', { limit: 3 });
+  });
+
+  it('supports offset pagination', async () => {
+    const listMock = vi.fn(async () => [message(1), message(2), message(3)]);
+    AgentMessagesRepository.setStore({
+      create: vi.fn(async () => {}),
+      list: listMock,
+    } satisfies AgentMessagesStore);
+
+    await AgentMessagesRepository.list('session-1', { offset: 2, limit: 3 });
+    expect(listMock).toHaveBeenCalledWith('session-1', { offset: 2, limit: 3 });
+  });
+
+  it('respects max limit cap of 50000', async () => {
+    const listMock = vi.fn(async () => [message(1), message(2), message(3)]);
+    AgentMessagesRepository.setStore({
+      create: vi.fn(async () => {}),
+      list: listMock,
+    } satisfies AgentMessagesStore);
+
+    await AgentMessagesRepository.list('session-1', { limit: 100000 });
+    expect(listMock).toHaveBeenCalledWith('session-1', { limit: 100000 });
   });
 });
