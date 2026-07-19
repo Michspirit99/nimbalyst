@@ -75,6 +75,9 @@ export type OpenCodeClientFactory = (options: { baseUrl: string }) => OpenCodeCl
 /**
  * Singleton manager for the OpenCode server subprocess.
  * Reference-counted: starts on first session, stops when last session ends.
+ * 
+ * Thread safety: Concurrent calls to ensureRunning() must not create multiple
+ * server startup promises. Only ONE Promise.startServer() should run per worker.
  */
 class OpenCodeServerManager {
   private static instance: OpenCodeServerManager | null = null;
@@ -85,6 +88,11 @@ class OpenCodeServerManager {
   private ready = false;
   private readyPromise: Promise<void> | null = null;
   private workspacePath: string = '';
+  /**
+   * Guard to prevent concurrent server startup. Only ONE thread enters the
+   * startup path. All concurrent callers await this same promise.
+   */
+  private startupPromise: Promise<void> | null = null;
 
   static getInstance(): OpenCodeServerManager {
     if (!OpenCodeServerManager.instance) {
@@ -103,32 +111,59 @@ class OpenCodeServerManager {
 
   /**
    * Ensure the server is running. Spawns it if not already started.
-   * Returns when the server is ready to accept connections.
+   * 
+   * Thread safety: Uses startupPromise guard to prevent multiple concurrent
+   * ensureRunning() calls from creating duplicate server processes. All concurrent
+   * calls await on the SAME startupPromise.
+   * 
+   * @returns A promise that resolves when the server is ready
    */
   async ensureRunning(workspacePath: string, env?: Record<string, string>): Promise<void> {
     this.sessionCount++;
 
+    // Fast path: server already running and ready
     if (this.ready && this.serverProcess) {
       return;
     }
 
-    if (this.readyPromise) {
-      return this.readyPromise;
+    // Fast path: concurrent call already starting the server - join its promise
+    if (this.startupPromise) {
+      return this.startupPromise;
     }
 
+    // Slow path: start server (only ONE thread enters here per worker)
     this.workspacePath = workspacePath;
-    this.readyPromise = this.startServer(env);
-    return this.readyPromise;
+    this.startupPromise = this.startServer(env);
+
+    try {
+      await this.startupPromise;
+    } finally {
+      // Clear the guard after the server has started - concurrent callers can now
+      // proceed to the ready==true fast path instead of creating new startup promises.
+      this.startupPromise = null;
+    }
   }
 
   /**
    * Release a session's reference. Shuts down the server when
    * all sessions have been released.
+   * 
+   * Note: Destroyed without checking ready flag—in case the server crashed
+   * and left sessionCount>0 via a race where cleanupSession was never called.
+   * The server will be re-started by the next ensureRunning() call anyway.
    */
   release(): void {
     this.sessionCount = Math.max(0, this.sessionCount - 1);
     if (this.sessionCount === 0) {
       this.stopServer();
+    } else if (!this.ready && this.serverProcess) {
+      // Downgrade: Force ready=false when shutdown is triggered prematurely
+      // (due to cleanupSession not being called). This ensures subsequent
+      // ensureRunning() calls will start a fresh server instead of waiting on
+      // a dead/wrapper promise.
+      console.log('[OPENCODE-PROTOCOL] Pre-shutdown downgrade: forcing ready=false');
+      this.ready = false;
+      this.readyPromise = null;
     }
   }
 
@@ -156,6 +191,7 @@ class OpenCodeServerManager {
     this.serverProcess.on('error', (error) => {
       console.error('[OPENCODE-PROTOCOL] Server process error:', error.message);
       this.ready = false;
+      this.startupPromise = null;
       this.readyPromise = null;
     });
 
@@ -163,6 +199,7 @@ class OpenCodeServerManager {
       console.log(`[OPENCODE-PROTOCOL] Server exited: code=${code}, signal=${signal}`);
       this.serverProcess = null;
       this.ready = false;
+      this.startupPromise = null;
       this.readyPromise = null;
     });
 
