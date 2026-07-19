@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { SyntheticProvider } from '../SyntheticProvider';
+import { SyntheticProvider, resolveMcpTargetByName } from '../SyntheticProvider';
 import { AgentMessagesRepository } from '../../../../storage/repositories/AgentMessagesRepository';
+import type { RuntimeMcpToolTarget } from '../../services/RuntimeMcpHttpBridge';
 
 // Mock the fetch API for testing
 const mockFetch = vi.fn();
@@ -447,6 +448,43 @@ describe('SyntheticProvider', () => {
       expect(completes[0].isComplete).toBe(true);
       expect(completes[0].content).toBe('hi');
     });
+  });
+});
+
+describe('resolveMcpTargetByName', () => {
+  function target(serverName: string, toolName: string): RuntimeMcpToolTarget {
+    return { serverName, toolName, config: { url: `http://127.0.0.1/${serverName}` } as any };
+  }
+
+  it('resolves an exact namespaced tool name', () => {
+    const targets = new Map<string, RuntimeMcpToolTarget>([
+      ['mcp__nimbalyst__update_session_meta', target('nimbalyst', 'update_session_meta')],
+      ['mcp__nimbalyst-host__create_session', target('nimbalyst-host', 'create_session')],
+    ]);
+    expect(resolveMcpTargetByName(targets, 'mcp__nimbalyst__update_session_meta')?.toolName)
+      .toBe('update_session_meta');
+  });
+
+  it('falls back to base tool name when the model uses a wrong server prefix', () => {
+    // `update_session_meta` is registered under the `nimbalyst` core server, but
+    // the model called it with the `nimbalyst-host` prefix. Should still resolve.
+    const targets = new Map<string, RuntimeMcpToolTarget>([
+      ['mcp__nimbalyst__update_session_meta', target('nimbalyst', 'update_session_meta')],
+    ]);
+    expect(resolveMcpTargetByName(targets, 'mcp__nimbalyst-host__update_session_meta')?.toolName)
+      .toBe('update_session_meta');
+  });
+
+  it('returns undefined for a non-MCP name with no matching target', () => {
+    const targets = new Map<string, RuntimeMcpToolTarget>([
+      ['mcp__nimbalyst__update_session_meta', target('nimbalyst', 'update_session_meta')],
+    ]);
+    expect(resolveMcpTargetByName(targets, 'some_builtin_tool')).toBeUndefined();
+  });
+
+  it('returns undefined when no registered target matches the base name', () => {
+    const targets = new Map<string, RuntimeMcpToolTarget>();
+    expect(resolveMcpTargetByName(targets, 'mcp__nimbalyst-host__nope')).toBeUndefined();
   });
 });
 

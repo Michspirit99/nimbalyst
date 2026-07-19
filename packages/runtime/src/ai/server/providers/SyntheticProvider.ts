@@ -46,6 +46,30 @@ interface SyntheticProviderDeps {
   protocol?: SyntheticProtocol;
 }
 
+/**
+ * Resolve an MCP tool target by its OpenAI function name.
+ *
+ * First tries the exact namespaced name (`mcp__<server>__<tool>`). Some models
+ * call an always-loaded core tool (e.g. `update_session_meta`, served on the
+ * `nimbalyst` core server) with a different first-party server prefix (e.g.
+ * `mcp__nimbalyst-host__update_session_meta`); the exact lookup misses, so we
+ * fall back to resolving by base tool name across all registered targets so the
+ * call still lands on the owning server instead of failing with "Unknown tool".
+ */
+export function resolveMcpTargetByName(
+  targets: Map<string, RuntimeMcpToolTarget>,
+  name: string,
+): RuntimeMcpToolTarget | undefined {
+  const exact = targets.get(name);
+  if (exact) return exact;
+  const baseName = name.replace(/^mcp__[^\s]+__/, '');
+  if (baseName === name) return undefined;
+  for (const target of targets.values()) {
+    if (target.toolName === baseName) return target;
+  }
+  return undefined;
+}
+
 export interface SyntheticConfig extends ProviderConfig {
   baseUrl?: string;
 }
@@ -224,7 +248,7 @@ export class SyntheticProvider extends BaseAgentProvider {
       this.protocol.toolExecutor = async (name, args) => {
         let result: unknown;
         try {
-          const mcpTarget = mcpToolTargets.get(name);
+          const mcpTarget = resolveMcpTargetByName(mcpToolTargets, name);
           if (mcpTarget) {
             result = await this.mcpBridge.callTool(mcpTarget, args);
           } else {
