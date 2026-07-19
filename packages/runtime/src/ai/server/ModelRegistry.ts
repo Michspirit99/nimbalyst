@@ -82,6 +82,11 @@ export class ModelRegistry {
           const { LMStudioProvider } = await import('./providers/LMStudioProvider');
           models = await LMStudioProvider.getModels(baseUrl || 'http://127.0.0.1:1234');
           break;
+        case 'synthetic':
+          // Fetch models from Synthetic.new API
+          const { SyntheticProvider } = await import('./providers/SyntheticProvider');
+          models = await SyntheticProvider.getModels(apiKey || '');
+          break;
         case 'copilot-cli':
           const { CopilotCLIProvider } = await import('./providers/CopilotCLIProvider');
           models = await CopilotCLIProvider.getModels();
@@ -124,6 +129,7 @@ export class ModelRegistry {
     if (shouldFetch('openai-codex-acp')) promises.push(this.getModelsForProvider('openai-codex-acp', apiKeys['openai']));
     if (shouldFetch('opencode')) promises.push(this.getModelsForProvider('opencode'));
     if (shouldFetch('lmstudio')) promises.push(this.getModelsForProvider('lmstudio', undefined, apiKeys['lmstudio_url']));
+    if (shouldFetch('synthetic')) promises.push(this.getModelsForProvider('synthetic', apiKeys['synthetic']));
     if (shouldFetch('copilot-cli')) promises.push(this.getModelsForProvider('copilot-cli'));
 
     const results = await Promise.allSettled(promises);
@@ -171,6 +177,9 @@ export class ModelRegistry {
       case 'lmstudio':
         const { LMStudioProvider } = await import('./providers/LMStudioProvider');
         return LMStudioProvider.getDefaultModel();
+      case 'synthetic':
+        const { SyntheticProvider } = await import('./providers/SyntheticProvider');
+        return SyntheticProvider.getDefaultModel();
       case 'copilot-cli':
         const { CopilotCLIProvider: CLP } = await import('./providers/CopilotCLIProvider');
         return CLP.getDefaultModel();

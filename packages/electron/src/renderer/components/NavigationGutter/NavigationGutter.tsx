@@ -13,6 +13,8 @@ import { ExtensionDevIndicator } from '../ExtensionDevIndicator';
 import { ClaudeUsageIndicator } from '../ClaudeUsageIndicator';
 import { CodexUsageIndicator } from '../CodexUsageIndicator';
 import { GeminiUsageIndicator } from '../GeminiUsageIndicator';
+import { SyntheticUsageIndicator } from '../SyntheticUsageIndicator';
+import { BackgroundTaskIndicator } from '../BackgroundTaskIndicator';
 import { VoiceModeButton } from '../UnifiedAI/VoiceModeButton';
 import { useExtensionGutterButtons, useExtensionBottomPanelButtons } from '../../extensions/panels/usePanels';
 import { HelpTooltip } from '../../help';
@@ -422,6 +424,10 @@ export const NavigationGutter: React.FC<NavigationGutterProps> = ({
     {
       id: 'gemini-usage', section: 'indicators', icon: 'gemini', label: 'Gemini Usage', hideable: true,
       render: () => <GeminiUsageIndicator />,
+    },
+    {
+      id: 'synthetic-usage', section: 'indicators', icon: 'synthetic', label: 'Synthetic Usage', hideable: true,
+      render: () => <SyntheticUsageIndicator />,
     },
     {
       id: 'extension-dev', section: 'indicators', icon: 'extension', label: 'Extension Dev', hideable: true,

@@ -141,6 +141,8 @@ import { registerCodexUsageHandlers } from './ipc/CodexUsageHandlers';
 import { codexUsageService } from './services/CodexUsageService';
 import { registerGeminiUsageHandlers } from './ipc/GeminiUsageHandlers';
 import { geminiUsageService } from './services/GeminiUsageService';
+import { registerSyntheticUsageHandlers } from './ipc/SyntheticUsageHandlers';
+import { syntheticUsageService } from './services/SyntheticUsageService';
 import { codexAuthService } from './services/CodexAuthService';
 import { registerExtensionHandlers, getClaudePluginPaths, initializeExtensionFileTypes } from './ipc/ExtensionHandlers';
 import { registerExtensionPermissionHandlers } from './ipc/ExtensionPermissionHandlers';
@@ -1585,6 +1587,8 @@ app.whenReady().then(async () => {
     codexUsageService.initialize();
     registerGeminiUsageHandlers();
     geminiUsageService.initialize();
+    registerSyntheticUsageHandlers();
+    syntheticUsageService.initialize();
     registerPermissionHandlers();
     registerGitStatusHandlers();
     registerGitHandlers();

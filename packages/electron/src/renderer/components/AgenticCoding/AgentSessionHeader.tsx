@@ -179,8 +179,13 @@ export const AgentSessionHeader: React.FC<AgentSessionHeaderProps> = ({
             </div>
           </div>
         ) : isWorkstreamSession ? (
-          <div className="agent-session-header-icon workstream-header-icon shrink-0 text-[var(--nim-text-muted)]">
-            <MaterialSymbol icon="account_tree" size={20} />
+          <div className="agent-session-header-icon-wrapper relative shrink-0 w-6 h-6">
+            <div className="agent-session-header-icon workstream-header-icon w-6 h-6 flex items-center justify-center text-[var(--nim-text-muted)]">
+              <MaterialSymbol icon="account_tree" size={20} />
+            </div>
+            <div className="agent-session-header-ai-badge absolute -bottom-0.5 -right-1 bg-[var(--nim-bg)] rounded-full p-0.5 flex items-center justify-center">
+              <ProviderIcon provider={sessionData.provider || 'claude'} size={12} />
+            </div>
           </div>
         ) : (
           <div className="agent-session-header-icon shrink-0 text-[var(--nim-text-muted)]">

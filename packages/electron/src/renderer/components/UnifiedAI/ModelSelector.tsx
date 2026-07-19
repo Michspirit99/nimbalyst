@@ -128,6 +128,7 @@ export function ModelSelector({
       case 'opencode':
       case 'copilot-cli':
       case 'lmstudio':
+      case 'synthetic':
         return provider;
       case 'openai-codex-acp':
         // Settings still live under the OpenAI Codex panel.
@@ -182,6 +183,7 @@ export function ModelSelector({
       case 'opencode': return 'OpenCode';
       case 'copilot-cli': return 'GitHub Copilot';
       case 'lmstudio': return 'LMStudio';
+      case 'synthetic': return 'Synthetic.new';
       default: {
         // Extension-contributed providers carry their contribution id here
         // (e.g. "antigravity-gemini-agent"). Prettify it for the group header
@@ -207,10 +209,15 @@ export function ModelSelector({
     return getProviderIcon(provider, { size });
   };
 
-  const CHAT_MODEL_PROVIDERS = new Set(['claude', 'openai', 'lmstudio']);
+  const CHAT_MODEL_PROVIDERS = new Set(['claude', 'openai', 'lmstudio', 'synthetic']);
   const getProviderType = (provider: string): ProviderType => {
-    if (isAgentProvider(provider)) return 'agent';
+    // Synthetic.new is dual-mode: it can run as an agent provider, but the
+    // same OpenAI-compatible endpoint is also useful as a direct chat/model
+    // provider. Group it with chat models in the picker while the lower-level
+    // provider switch guard still treats existing Synthetic sessions as agentic
+    // for session-safety decisions.
     if (CHAT_MODEL_PROVIDERS.has(provider)) return 'model';
+    if (isAgentProvider(provider)) return 'agent';
     return 'agent';
   };
 

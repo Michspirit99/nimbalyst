@@ -509,6 +509,10 @@ export class MessageStreamingHandler {
             // LMStudio doesn't need an API key, just the base URL
             apiKey = 'not-required'; // Dummy value since LMStudio doesn't need a key
             break;
+          case 'synthetic':
+            // Synthetic.new requires an API key
+            errorMessage = 'Synthetic.new API key not configured';
+            break;
           default:
             throw new Error(`Unknown provider: ${session.provider}`);
         }
@@ -694,7 +698,7 @@ export class MessageStreamingHandler {
     // their runtime config from the persisted session before each send so a
     // cached provider cannot keep an empty or stale model after the picker
     // updates session.model and invalidates the prior instance.
-    if (['claude', 'openai', 'lmstudio'].includes(session.provider)) {
+    if (['claude', 'openai', 'lmstudio', 'synthetic'].includes(session.provider)) {
       let expectedModel: string | undefined;
       const fullModel = session.model || session.providerConfig?.model;
       if (fullModel) {
@@ -719,7 +723,11 @@ export class MessageStreamingHandler {
           ? 'not-required'
           : this.svc.getApiKeyForProvider(session.provider, effectiveWorkspacePath);
         if (!apiKey && session.provider !== 'lmstudio') {
-          throw new Error(session.provider === 'openai' ? 'OpenAI API key not configured' : 'Anthropic API key not configured');
+          throw new Error(
+            session.provider === 'openai' ? 'OpenAI API key not configured'
+            : session.provider === 'synthetic' ? 'Synthetic.new API key not configured'
+            : 'Anthropic API key not configured'
+          );
         }
 
         const refreshedConfig: ProviderConfig = {
@@ -1213,10 +1221,35 @@ export class MessageStreamingHandler {
         // No need to configure per-session context
       } else {
         // Refresh credentials every turn for all providers so key changes in settings apply immediately.
+        // IMPORTANT: this initialize() replaces the provider's entire config object
+        // (BaseAIProvider.assigns this.config = config), so we MUST carry the model
+        // forward here too. Without it, the provider falls back to its DEFAULT_MODEL
+        // on every turn. For most providers that's merely the wrong model; for
+        // Synthetic.new the default ("hf:syn:coding") isn't a real HuggingFace id, so
+        // Synthetic.new rejects it with 400 "URL must begin with https://huggingface.co".
         const freshApiKey = this.svc.getApiKeyForProvider(session.provider, effectiveWorkspacePath);
         const turnEffortLevel = resolveEffortLevel((session.metadata as any)?.effortLevel, getDefaultEffortLevel());
+        let turnModel: string | undefined;
+        const turnFullModel = session.model || session.providerConfig?.model;
+        if (turnFullModel) {
+          const modelForProvider = extractModelForProvider(turnFullModel, session.provider as AIProviderType);
+          if (modelForProvider !== null) {
+            turnModel = modelForProvider;
+          }
+        }
+        if (!turnModel) {
+          const defaultModel = await ModelRegistry.getDefaultModel(session.provider as AIProviderType);
+          if (defaultModel) {
+            const defaultModelForProvider = extractModelForProvider(defaultModel, session.provider as AIProviderType);
+            if (defaultModelForProvider !== null) {
+              turnModel = defaultModelForProvider;
+            }
+          }
+        }
+
         const turnConfig: any = {
           apiKey: freshApiKey,
+          model: turnModel,
           maxTokens: (session.providerConfig as any)?.maxTokens,
           temperature: (session.providerConfig as any)?.temperature,
           ...(turnEffortLevel && { effortLevel: turnEffortLevel }),
@@ -2320,12 +2353,13 @@ export class MessageStreamingHandler {
               const newOutputTokens = tokenUsage.output_tokens || 0;
               const newTotalTokens = newInputTokens + newOutputTokens;
               const isCodexProvider = session.provider === 'openai-codex';
+              const isContextSnapshotProvider = isCodexProvider || session.provider === 'synthetic';
               const codexInitData = isCodexProvider ? (provider as any).getInitData?.() : null;
               const isResumedCodexThread = codexInitData?.isResumedThread === true;
 
-              const codexContextWindow =
-                isCodexProvider
-                  ? (contextWindowFromChunk || currentUsage.contextWindow)
+              const providerContextWindow =
+                isContextSnapshotProvider
+                  ? (contextWindowFromChunk || selectedModelContextWindow || currentUsage.contextWindow)
                   : currentUsage.contextWindow;
 
               // Codex SDK turn.completed usage is cumulative for the provider thread.
@@ -2381,11 +2415,11 @@ export class MessageStreamingHandler {
                   providerCumulativeInputTokens,
                   providerCumulativeOutputTokens,
                 } : {}),
-                contextWindow: codexContextWindow,
+                contextWindow: providerContextWindow,
                 currentContext:
-                  isCodexProvider && !contextCompacted
-                    ? (contextFillTokens !== undefined && codexContextWindow
-                      ? { tokens: contextFillTokens, contextWindow: codexContextWindow }
+                  isContextSnapshotProvider && !contextCompacted
+                    ? (contextFillTokens !== undefined && providerContextWindow
+                      ? { tokens: contextFillTokens, contextWindow: providerContextWindow }
                       : currentUsage.currentContext)
                     : currentUsage.currentContext,
               };
@@ -2398,8 +2432,8 @@ export class MessageStreamingHandler {
                 tokenUsage: updatedUsage
               });
 
-              // Push context usage to mobile sync for Codex sessions
-              if (isCodexProvider && contextFillTokens !== undefined && codexContextWindow) {
+              // Push context usage to mobile sync for providers that emit context snapshots
+              if (isContextSnapshotProvider && contextFillTokens !== undefined && providerContextWindow) {
                 const syncProvider = getSyncProvider();
                 if (syncProvider) {
                   syncProvider.pushChange(session.id, {
@@ -2407,7 +2441,7 @@ export class MessageStreamingHandler {
                     metadata: {
                       currentContext: {
                         tokens: contextFillTokens,
-                        contextWindow: codexContextWindow,
+                        contextWindow: providerContextWindow,
                       },
                     } as any,
                   });
