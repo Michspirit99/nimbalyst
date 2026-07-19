@@ -107,6 +107,29 @@ export class ClaudeCodeDetector {
    */
   private async checkInstallation(): Promise<{ installed: boolean; version?: string }> {
     return new Promise((resolve) => {
+      let childProcess: ReturnType<typeof spawn> | null = null;
+
+      const cleanup = (): void => {
+        if (childProcess && !childProcess.killed) {
+          // SIGTERM first - lets the process clean up gracefully
+          childProcess.kill('SIGTERM');
+
+          // SIGKILL after 2s if it hasn't exited - terminate forcefully
+          setTimeout(() => {
+            if (childProcess && !childProcess.killed) {
+              childProcess.kill('SIGKILL');
+            }
+          }, 2000);
+        }
+      };
+
+      // If the command takes longer than 10s, we consider it failed and kill it
+      const timeout = setTimeout(() => {
+        logger.main.warn('[ClaudeCodeDetector] Timeout waiting for claude --version');
+        cleanup();
+        resolve({ installed: false });
+      }, 10000);
+
       try {
         // Try to run: claude --version
         logger.main.info('[ClaudeCodeDetector] Checking for Claude Code CLI installation...');
@@ -119,8 +142,7 @@ export class ClaudeCodeDetector {
           PATH: enhancedPath,
         };
 
-        const childProcess = spawn('claude', ['--version'], {
-          timeout: 10000,
+        childProcess = spawn('claude', ['--version'], {
           shell: true,
           env,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -129,15 +151,15 @@ export class ClaudeCodeDetector {
         let output = '';
         let errorOutput = '';
 
-        childProcess.stdout?.on('data', (data) => {
-          output += data.toString();
-        });
-
-        childProcess.stderr?.on('data', (data) => {
-          errorOutput += data.toString();
-        });
+        // If we get output, the command is responding - clear the timeout
+        const resetTimer = (): void => {
+          clearTimeout(timeout);
+        };
+        childProcess.stdout?.on('data', resetTimer);
+        childProcess.stderr?.on('data', resetTimer);
 
         childProcess.on('close', (code) => {
+          // Natural exit - no need to cleanup
           if (code === 0 && output) {
             const version = output.trim();
             logger.main.info('[ClaudeCodeDetector] CLI installed, version:', version);
@@ -152,10 +174,14 @@ export class ClaudeCodeDetector {
         });
 
         childProcess.on('error', (error) => {
+          // Failed to spawn - no process to cleanup
+          clearTimeout(timeout);
           logger.main.error('[ClaudeCodeDetector] Failed to spawn claude:', error);
           resolve({ installed: false });
         });
       } catch (error) {
+        // Exception before spawn - no process to cleanup
+        clearTimeout(timeout);
         logger.main.error('[ClaudeCodeDetector] Installation check failed:', error);
         resolve({ installed: false });
       }
@@ -171,6 +197,29 @@ export class ClaudeCodeDetector {
     hasApiKey?: boolean;
   }> {
     return new Promise((resolve) => {
+      let childProcess: ReturnType<typeof spawn> | null = null;
+
+      const cleanup = (): void => {
+        if (childProcess && !childProcess.killed) {
+          // SIGTERM first - lets the process clean up gracefully
+          childProcess.kill('SIGTERM');
+
+          // SIGKILL after 2s if it hasn't exited - terminate forcefully
+          setTimeout(() => {
+            if (childProcess && !childProcess.killed) {
+              childProcess.kill('SIGKILL');
+            }
+          }, 2000);
+        }
+      };
+
+      // If the command takes longer than 10s, we consider it failed and kill it
+      const timeout = setTimeout(() => {
+        logger.main.warn('[ClaudeCodeDetector] Timeout waiting for claude -p status');
+        cleanup();
+        resolve({ loggedIn: false });
+      }, 10000);
+
       try {
         logger.main.info('[ClaudeCodeDetector] Checking login status with claude -p status...');
 
@@ -182,8 +231,7 @@ export class ClaudeCodeDetector {
           CI: 'true',   // Some CLIs use this to detect non-interactive mode
         };
 
-        const childProcess = spawn('claude', ['-p', 'status'], {
-          timeout: 10000, // 10 seconds should be enough - fails fast when not logged in
+        childProcess = spawn('claude', ['-p', 'status'], {
           shell: true,
           env,
           stdio: ['ignore', 'pipe', 'pipe'], // Ignore stdin, capture stdout/stderr
@@ -192,15 +240,15 @@ export class ClaudeCodeDetector {
         let output = '';
         let errorOutput = '';
 
-        childProcess.stdout?.on('data', (data) => {
-          output += data.toString();
-        });
-
-        childProcess.stderr?.on('data', (data) => {
-          errorOutput += data.toString();
-        });
+        // If we get output, the command is responding - clear the timeout
+        const resetTimer = (): void => {
+          clearTimeout(timeout);
+        };
+        childProcess.stdout?.on('data', resetTimer);
+        childProcess.stderr?.on('data', resetTimer);
 
         childProcess.on('close', (code) => {
+          // Natural exit - no need to cleanup
           const combinedOutput = output + errorOutput;
 
           // If output contains "Invalid API key" or "Please run /login", user is not logged in
@@ -212,10 +260,9 @@ export class ClaudeCodeDetector {
             logger.main.info('[ClaudeCodeDetector] User is logged in (exit code 0)');
             resolve({ loggedIn: true, hasSession: true });
           } else if (code === 143 || code === null) {
-            // Exit code 143 = SIGTERM timeout, or null = process was killed by timeout
-            // The command times out when it's actually working (generating status output),
-            // which only happens when logged in. When not logged in, it fails fast with
-            // "Invalid API key" message.
+            // Exit code 143 = SIGTERM timeout (our cleanup), or null = process was killed
+            // Command timed out but was responding (logged in) - this is okay
+            // When not logged in, it fails fast with "Invalid API key" message
             logger.main.info('[ClaudeCodeDetector] User is logged in (command timed out but was working)');
             resolve({ loggedIn: true, hasSession: true });
           } else {
@@ -227,10 +274,14 @@ export class ClaudeCodeDetector {
         });
 
         childProcess.on('error', (error) => {
+          // Failed to spawn - no process to cleanup
+          clearTimeout(timeout);
           logger.main.error('[ClaudeCodeDetector] Failed to run claude -p status:', error);
           resolve({ loggedIn: false });
         });
       } catch (error) {
+        // Exception before spawn - no process to cleanup
+        clearTimeout(timeout);
         logger.main.error('[ClaudeCodeDetector] Login status check failed:', error);
         resolve({ loggedIn: false });
       }
