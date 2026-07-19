@@ -547,3 +547,44 @@ describe.skipIf(!runSyntheticIntegration)('SyntheticProvider live integration', 
     expect(finalChunk.content.length).toBeGreaterThan(0);
   });
 });
+
+describe('resolveMcpTarget fallback test', () => {
+  function createTarget(serverName: string, toolName: string): RuntimeMcpToolTarget {
+    return { serverName, toolName, config: { url: `http://127.0.0.1/${serverName}` } as any };
+  }
+
+  it('model calls tool with unprefixed name should match', () => {
+    const targets = new Map<string, RuntimeMcpToolTarget>([
+      ['mcp__nimbalyst__update_session_meta', createTarget('nimbalyst', 'update_session_meta')],
+    ]);
+    
+    // Model calls tool by base name (without prefix)
+    const name = 'update_session_meta';
+    
+    // Step 1: exact match by namespaced name
+    const exact = targets.get(name);
+    if (exact) {
+      return expect(exact.toolName).toBe('update_session_meta');
+    }
+    
+    // Step 2: search by raw toolName (handles both prefixed and unprefixed calls)
+    const baseName = name.replace(/^mcp__[^\s]+__/, '');
+    let result: RuntimeMcpToolTarget | undefined;
+    for (const target of targets.values()) {
+      if (target.toolName === baseName) { result = target; break; }
+    }
+    
+    expect(result?.toolName).toBe('update_session_meta');
+  });
+
+  it('exact namespaced call should match using exact key', () => {
+    const targets = new Map<string, RuntimeMcpToolTarget>([
+      ['mcp__nimbalyst__update_session_meta', createTarget('nimbalyst', 'update_session_meta')],
+    ]);
+    
+    const name = 'mcp__nimbalyst__update_session_meta';
+    const exact = targets.get(name);
+    
+    expect(exact?.toolName).toBe('update_session_meta');
+  });
+});

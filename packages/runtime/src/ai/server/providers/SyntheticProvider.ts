@@ -60,13 +60,18 @@ export function resolveMcpTargetByName(
   targets: Map<string, RuntimeMcpToolTarget>,
   name: string,
 ): RuntimeMcpToolTarget | undefined {
+  // First, try exact match by namespaced name (mcp__<server>__<tool>)
   const exact = targets.get(name);
   if (exact) return exact;
+
+  // Fall back to base tool name: strip any mcp__<server>__ prefix
   const baseName = name.replace(/^mcp__[^\s]+__/, '');
-  if (baseName === name) return undefined;
+
+  // Search for a target whose raw toolName matches the input (handles calls with/without prefix)
   for (const target of targets.values()) {
     if (target.toolName === baseName) return target;
   }
+
   return undefined;
 }
 
