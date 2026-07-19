@@ -82,20 +82,20 @@ export function parseWhere(raw: string[]): WhereClause[] {
   return raw.map((clause) => {
     // Order matters: check two-char / prefixed ops before '='.
     let m: RegExpMatchArray | null;
-    if ((m = clause.match(/^([^=!~]+)!=(.*)$/))) {
+    if ((m = clause.match(/^([^\=!~]+)!=(.*)$/))) {
       return { field: m[1].trim(), op: '!=', value: m[2] };
     }
-    if ((m = clause.match(/^([^=!~]+)~(.*)$/))) {
+    if ((m = clause.match(/^([^\=!~]+)~(.*)$/))) {
       return { field: m[1].trim(), op: '~', value: m[2] };
     }
-    if ((m = clause.match(/^([^=!~]+)\s+in:(.*)$/)) || (m = clause.match(/^([^=!~]+)=in:(.*)$/))) {
+    if ((m = clause.match(/^([^\=!~]+)\s+in:(.*)$/)) || (m = clause.match(/^([^\=!~]+)=in:(.*)$/))) {
       return { field: m[1].trim(), op: 'in', value: m[2] };
     }
-    if ((m = clause.match(/^([^=!~]+)=(.*)$/))) {
+    if ((m = clause.match(/^([^\=!~]+)=(.*)$/))) {
       return { field: m[1].trim(), op: '=', value: m[2] };
     }
     throw usageError(
-      `Could not parse --where "${clause}". Use field=value, field!=value, field~value, or field=in:a,b,c`,
+      `Could not parse --where "${clause}". Use field=value, field!=value, field~value, or field=in:a,b,c`
     );
   });
 }
@@ -103,7 +103,9 @@ export function parseWhere(raw: string[]): WhereClause[] {
 // ---- write input builders --------------------------------------------------
 
 /** Parse repeatable `--field key=value` flags into a field bag. JSON-ish values
- *  (numbers, true/false, null) are coerced; everything else stays a string. */
+ *  (numbers, true/false, null) are coerced; everything else stays a string.
+ *  Repeated keys accumulate into arrays (follows repeatable-flag convention, like `curl -H`).
+ */
 export function parseFields(raw: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const entry of raw) {
@@ -111,7 +113,25 @@ export function parseFields(raw: string[]): Record<string, unknown> {
     if (eq < 0) throw usageError(`--field expects key=value, got "${entry}"`);
     const key = entry.slice(0, eq).trim();
     const value = entry.slice(eq + 1);
-    out[key] = coerceScalar(value);
+
+    // Track whether we've seen this key before to support multi-value fields.
+    const prev = out[key];
+
+    // Check if this key is defined in the output (ignoring null vs undefined nuance).
+    // We use HasOwnProperty which only returns true for own properties.
+    const isFirstOccurrence = !Object.prototype.hasOwnProperty.call(out, key);
+    const coerced = coerceScalar(value);
+
+    if (isFirstOccurrence) {
+      // First occurrence: store as scalar
+      out[key] = coerced;
+    } else {
+      // Subsequent occurrences: convert scalar to array of {prev, coerced}
+      // We use a simple array approach (not {prev, coerced}) since the downstream
+      // normalizeRelationshipValue handles arrays of itemIds directly.
+      const existing = Array.isArray(prev) ? prev : [prev];
+      out[key] = [...existing, coerced];
+    }
   }
   return out;
 }

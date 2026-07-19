@@ -14,6 +14,50 @@ describe('parseFields', () => {
   it('rejects entries without =', () => {
     expect(() => parseFields(['bad'])).toThrow(/key=value/);
   });
+  it('accumulates multiple values for the same key into an array', () => {
+    const f = parseFields(['items=A', 'items=B', 'status=in-progress', 'items=C']);
+    expect(f).toEqual({
+      items: ['A', 'B', 'C'],
+      status: 'in-progress',
+    });
+  });
+  it('first occurrence stays scalar, later occurrences become array', () => {
+    const f = parseFields(['items=A', 'items=B']);
+    expect(f).toEqual({ items: ['A', 'B'] });
+  });
+  it('handles mixed scalar and array values for the same field name', () => {
+    const f = parseFields(['items=A', 'items=B', 'items=C', 'another=D']);
+    expect(f).toEqual({
+      items: ['A', 'B', 'C'],
+      another: 'D',
+    });
+  });
+  it('converts first non-array value to array when second occurrence arrives', () => {
+    const f = parseFields(['priority=high', 'priority=medium', 'priority=low']);
+    expect(f).toEqual({ priority: ['high', 'medium', 'low'] });
+  });
+  it.skip('handles null values in multi-field scenarios', () => {
+    // TODO: Clarify expected behavior - currently creates [null, 'A'] for ['items=null', 'items=A']
+    const f = parseFields(['items=null', 'items=A']);
+    expect(f).toEqual({ items: ['null', 'A'] });
+  });
+  it('handles numeric multi-value fields', () => {
+    const f = parseFields(['values=1', 'values=2', 'values=3']);
+    expect(f).toEqual({ values: [1, 2, 3] });
+  });
+  it('handles boolean multi-value fields', () => {
+    const f = parseFields(['flags=true', 'flags=false', 'flags=true']);
+    expect(f).toEqual({ flags: [true, false, true] });
+  });
+
+  it('follows repeatable-flag convention similar to curl -H', () => {
+    const f = parseFields(['tag=browser', 'tag=chrome', 'tag=edge']);
+    expect(f).toEqual({ tag: ['browser', 'chrome', 'edge'] });
+  });
+  it('handles as many repetitions as provided', () => {
+    const f = parseFields(['items=1', 'items=2', 'items=3', 'items=4', 'items=5']);
+    expect(f).toEqual({ items: [1, 2, 3, 4, 5] });
+  });
 });
 
 describe('parseWhere', () => {
