@@ -32,8 +32,7 @@ import { ProviderOverrideWrapper } from './panels/ProviderOverrideWrapper';
 import { InstalledExtensionsPanel } from './panels/InstalledExtensionsPanel';
 import { PrivilegedExtensionsPanel } from './panels/PrivilegedExtensionsPanel';
 import { ThemesPanel } from './panels/ThemesPanel';
-import { TeamPanel } from './panels/TeamPanel';
-import { OrgPanel } from './panels/OrgPanel';
+import { ProjectSharingPanel, type ProjectSettingsTarget } from './panels/ProjectSharingPanel';
 import { TrackerConfigPanel } from './panels/TrackerConfigPanel';
 import { GitHubAccountPanel } from './panels/GitHubAccountPanel';
 import { ExtensionMarketplacePanel } from './panels/ExtensionMarketplacePanel';
@@ -256,6 +255,9 @@ export function SettingsView({
   }, []);
   useEffect(() => { refreshExtAgentProviders(); }, [refreshExtAgentProviders]);
   const [scope, setScope] = useState<SettingsScope>(initialScope || 'user');
+  const [projectTarget, setProjectTarget] = useState<ProjectSettingsTarget | undefined>(
+    workspacePath ? { kind: 'workspace', workspacePath } : undefined,
+  );
 
   // Epic H3 P3: Organization scope. The selected org is shared with the
   // OrgSwitcher; the tab is enabled only when the user belongs to a team org.
@@ -966,11 +968,10 @@ export function SettingsView({
           />
         );
       case 'org':
-        // Epic H3 P3: in Organization scope, key off the selected org (not the
-        // workspace). Falls back to workspace resolution if no org is selected.
-        return <OrgPanel orgId={scope === 'organization' ? (effectiveOrgId ?? undefined) : undefined} workspacePath={workspacePath ?? undefined} />;
+        // Organization scope: render the project sharing panel (upstream replaced OrgPanel)
+        return <ProjectSharingPanel target={projectTarget} />;
       case 'team':
-        return <TeamPanel orgId={scope === 'organization' ? (effectiveOrgId ?? undefined) : undefined} workspacePath={workspacePath ?? undefined} />;
+        return <ProjectSharingPanel target={projectTarget} />;
       case 'tracker-config':
         return <TrackerConfigPanel workspacePath={workspacePath ?? undefined} />;
       case 'github':
