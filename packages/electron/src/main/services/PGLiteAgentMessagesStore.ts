@@ -156,23 +156,27 @@ export function createPGLiteAgentMessagesStore(db: PGliteLike, ensureDbReady?: E
     async list(sessionId: string, options?: { limit?: number; offset?: number; includeHidden?: boolean }): Promise<AgentMessage[]> {
       await ensureReady();
 
-      // Safeguard: limit maximum messages loaded to prevent OOM from corrupted sessions
+      // Default: Load only recent messages to prevent memory exhaustion
+      // When opening a session, load ~200 messages instead of loading all at once
+      const DEFAULT_MESSAGES_LIMIT = 200;
       const MAX_MESSAGES = 50000;
-      const limit = options?.limit ? Math.min(options.limit, MAX_MESSAGES) : MAX_MESSAGES;
+      const limit = options?.limit ?? DEFAULT_MESSAGES_LIMIT;
+      const cappedLimit = Math.min(limit, MAX_MESSAGES);
       const offset = options?.offset ?? 0;
       const includeHidden = options?.includeHidden ?? false;
 
       const query = `SELECT id, session_id, created_at, source, direction, content, metadata, hidden, provider_message_id
          FROM ai_agent_messages
          WHERE session_id = $1${includeHidden ? '' : ' AND hidden = FALSE'}
-         ORDER BY id ASC
+         ORDER BY id DESC
          LIMIT $2 OFFSET $3`;
 
-      const params: any[] = [sessionId, limit, offset];
+      // Use cappedLimit (enforce max limit)
+      const params: any[] = [sessionId, cappedLimit, offset];
       const { rows } = await db.query<any>(query, params);
 
       // Log warning if we hit the limit (indicates potential corruption)
-      if (rows.length >= MAX_MESSAGES) {
+      if (offset === 0 && rows.length >= MAX_MESSAGES) {
         console.warn(`[PGLiteAgentMessagesStore.list] WARNING: Session ${sessionId} has ${rows.length}+ messages (capped at ${MAX_MESSAGES}). May indicate sync corruption.`);
       }
 
