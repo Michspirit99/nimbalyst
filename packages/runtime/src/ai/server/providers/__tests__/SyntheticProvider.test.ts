@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { SyntheticProvider, resolveMcpTargetByName } from '../SyntheticProvider';
+import { SyntheticProvider, resolveMcpTargetByName, safeStringify } from '../SyntheticProvider';
 import { AgentMessagesRepository } from '../../../../storage/repositories/AgentMessagesRepository';
 import type { RuntimeMcpToolTarget } from '../../services/RuntimeMcpHttpBridge';
 
@@ -485,6 +485,34 @@ describe('resolveMcpTargetByName', () => {
   it('returns undefined when no registered target matches the base name', () => {
     const targets = new Map<string, RuntimeMcpToolTarget>();
     expect(resolveMcpTargetByName(targets, 'mcp__nimbalyst-host__nope')).toBeUndefined();
+  });
+});
+
+describe('safeStringify', () => {
+  it('passes strings through unchanged', () => {
+    expect(safeStringify('hello')).toBe('hello');
+  });
+
+  it('returns an empty string for undefined (never the undefined value)', () => {
+    // JSON.stringify(undefined) returns the *value* undefined, which would drop
+    // a tool-result `content` key and trigger "missing key 'content'" upstream.
+    const result = safeStringify(undefined);
+    expect(typeof result).toBe('string');
+    expect(result).toBe('');
+  });
+
+  it('serializes null as the string "null"', () => {
+    expect(safeStringify(null)).toBe('null');
+  });
+
+  it('serializes objects as JSON', () => {
+    expect(safeStringify({ ok: true })).toBe('{"ok":true}');
+  });
+
+  it('falls back to String() for non-serializable values', () => {
+    const circular: any = {};
+    circular.self = circular;
+    expect(typeof safeStringify(circular)).toBe('string');
   });
 });
 

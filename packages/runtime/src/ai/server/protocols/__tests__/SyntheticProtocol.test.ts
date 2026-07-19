@@ -182,6 +182,32 @@ describe('SyntheticProtocol', () => {
     expect(assistantToolMsg.tool_calls[0].function.name).toBe('readFile');
   });
 
+  it('assistant message with only tool_calls keeps a `content` key (null), not missing', async () => {
+    // Synthetic.new rejects assistant messages that omit `content` entirely with
+    // "missing key 'content'". When the model returns only tool_calls (no
+    // text), `content` must still be present (null) so the request validates.
+    const p = new SyntheticProtocol();
+    p.toolExecutor = vi.fn(async () => ({ content: 'ok', result: { success: true } }));
+
+    // Turn 1: tool call with NO preceding text delta (content stays empty).
+    mockFetch.mockResolvedValueOnce(
+      mockSseResponse([toolCallStart(0, 'call_1', 'readFile'), toolCallArgs(0, { path: '/a' }), DONE]) as any
+    );
+    // Turn 2: final answer.
+    mockFetch.mockResolvedValueOnce(mockSseResponse([txt('done'), DONE]) as any);
+
+    const s = await p.createSession({ workspacePath: '/w', raw: { apiKey: 'k', baseUrl: 'u', model: 'm', tools: NO_TOOLS } });
+    for await (const _e of p.sendMessage(s, { content: 'read /a' })) { void _e; }
+
+    const secondBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+    const assistantToolMsg = secondBody.messages.find((m: any) => m.role === 'assistant' && m.tool_calls);
+    expect(assistantToolMsg).toBeDefined();
+    // `content` key must be present (null), not omitted.
+    expect(Object.prototype.hasOwnProperty.call(assistantToolMsg, 'content')).toBe(true);
+    expect(assistantToolMsg.content).toBeNull();
+  });
+
+
   it('aggregates usage across tool-loop API calls', async () => {
     const p = new SyntheticProtocol();
     p.toolExecutor = vi.fn(async () => ({ content: JSON.stringify({ ok: true }), result: { success: true } }));

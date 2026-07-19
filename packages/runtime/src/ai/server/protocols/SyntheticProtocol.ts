@@ -193,8 +193,13 @@ export class SyntheticProtocol implements AgentProtocol {
 
       // Append the assistant turn to history (OpenAI requires the assistant
       // message that contained tool_calls to be present before tool results).
-      const assistantMessage: Record<string, unknown> = { role: 'assistant' };
-      if (final.text) assistantMessage.content = final.text;
+      // `content` must always be present (null when the turn had only tool
+      // calls and no text) or the upstream API rejects it with
+      // "missing key 'content'".
+      const assistantMessage: Record<string, unknown> = {
+        role: 'assistant',
+        content: final.text || null,
+      };
       if (final.toolCalls.length > 0) {
         assistantMessage.tool_calls = final.toolCalls.map((tc) => ({
           id: tc.id,

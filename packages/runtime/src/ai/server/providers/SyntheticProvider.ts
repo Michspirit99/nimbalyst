@@ -709,10 +709,15 @@ function stringContent(value: unknown): string {
   }
 }
 
-function safeStringify(value: unknown): string {
+export function safeStringify(value: unknown): string {
   if (typeof value === 'string') return value;
+  // JSON.stringify(undefined) returns the *value* undefined (not a string),
+  // which would drop a tool-result `content` key during serialization and make
+  // the upstream API reject the request with "missing key 'content'". Coerce
+  // to a real string in every other case.
+  if (value === undefined) return '';
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? '';
   } catch {
     return String(value);
   }
